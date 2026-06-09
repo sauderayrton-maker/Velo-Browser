@@ -1,0 +1,24 @@
+/* Velo Browser */
+
+/* Pill-shaped URL bar */
+entry.url-bar {
+    border-radius: 20px;
+    padding: 2px 12px;
+    min-width: 240px;
+    font-size: 14px;
+}
+
+/* Tighten up the linked nav button group */
+.linked > button {
+    padding: 6px 10px;
+}
+
+/* Tab bar sits flush under the header */
+tabbar {
+    margin-bottom: 0;
+}
+
+/* Thin loading progress stripe at top */
+window > * progressbar trough {
+    min-height: 2px;
+}
