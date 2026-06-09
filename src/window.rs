@@ -1,25 +1,28 @@
+use std::rc::Rc;
 use gtk4::prelude::*;
 use libadwaita::prelude::*;
 use webkit6::prelude::*;
-use webkit6::WebView;
+use webkit6::{LoadEvent, WebView};
 
 use crate::engine;
+use crate::history::HistoryPanel;
+use crate::bookmarks::BookmarksPanel;
 
 const NEWTAB_HTML: &str = include_str!("newtab.html");
-const NEWTAB_URI:  &str = "about:newtab";
+const NEWTAB_URI: &str = "about:newtab";
 
 pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::ApplicationWindow {
     let window = libadwaita::ApplicationWindow::builder()
         .application(app)
         .title("Velo")
-        .default_width(1400)
-        .default_height(900)
+        .default_width(1440)
+        .default_height(940)
         .build();
 
     let tab_view = libadwaita::TabView::new();
     let tab_bar = libadwaita::TabBar::builder()
         .view(&tab_view)
-        .expand_tabs(true)
+        .expand_tabs(false)
         .build();
 
     let (header, url_bar, back_btn, forward_btn, reload_btn) = build_header(&tab_view);
@@ -28,10 +31,71 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
     toolbar_view.add_top_bar(&header);
     toolbar_view.add_top_bar(&tab_bar);
     toolbar_view.set_content(Some(&tab_view));
-
     window.set_content(Some(&toolbar_view));
 
+    // Shared navigate callback for both panels
+    let navigate: Rc<dyn Fn(String)> = Rc::new(glib::clone!(
+        #[weak] tab_view,
+        #[upgrade_or] (),
+        move |url: String| {
+            let uri = normalize_url(&url);
+            with_webview(&tab_view, |wv| wv.load_uri(&uri));
+        }
+    ));
+
+    let history_panel = HistoryPanel::build(&window, Rc::clone(&navigate));
+    let bookmarks_panel = BookmarksPanel::build(&window, Rc::clone(&navigate));
+
+    // Dim the tab view when a panel is open — "environment reacts"
+    // Connect to each panel's window hide signal to remove dim when last panel closes
+    let hp_win = history_panel.window.clone();
+    let bp_win = bookmarks_panel.window.clone();
+    history_panel.window.connect_hide(glib::clone!(
+        #[weak] tab_view,
+        #[weak] bp_win,
+        move |_| {
+            if !bp_win.is_visible() {
+                tab_view.remove_css_class("browse-dim");
+            }
+        }
+    ));
+    bookmarks_panel.window.connect_hide(glib::clone!(
+        #[weak] tab_view,
+        #[weak] hp_win,
+        move |_| {
+            if !hp_win.is_visible() {
+                tab_view.remove_css_class("browse-dim");
+            }
+        }
+    ));
+
+    // Bookmark star button
+    let star_btn = gtk4::Button::builder()
+        .icon_name("bookmark-new-symbolic")
+        .tooltip_text("Bookmark page (Ctrl+D)")
+        .css_classes(vec!["flat"])
+        .build();
+    header.pack_end(&star_btn);
+
+    star_btn.connect_clicked(glib::clone!(
+        #[weak] url_bar,
+        #[weak] tab_view,
+        move |_| {
+            let url = url_bar.text().to_string();
+            if url.is_empty() || url == "about:blank" { return; }
+            let title = tab_view
+                .selected_page()
+                .and_then(|p| page_webview(&p))
+                .and_then(|wv| wv.title())
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| url.clone());
+            crate::backend::add_bookmark(url, title);
+        }
+    ));
+
     open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, NEWTAB_URI, true);
+
+    let notes_win = crate::notes::build(&window);
 
     tab_view.connect_selected_page_notify(glib::clone!(
         #[weak] back_btn,
@@ -46,7 +110,11 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
         }
     ));
 
-    setup_shortcuts(&window, &tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn);
+    setup_shortcuts(
+        &window, &tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn,
+        &notes_win, &history_panel, &bookmarks_panel,
+    );
+
     load_css();
     window
 }
@@ -76,7 +144,7 @@ fn build_header(
     nav_box.append(&reload_btn);
 
     let url_bar = gtk4::Entry::builder()
-        .placeholder_text("Search or type a URL")
+        .placeholder_text("Search or navigate")
         .hexpand(true)
         .width_chars(60)
         .css_classes(vec!["url-bar"])
@@ -152,8 +220,6 @@ pub fn open_tab(
 ) -> libadwaita::TabPage {
     let webview = engine::create_webview();
     if url == NEWTAB_URI {
-        // None base URI avoids WebKit rejecting "about:newtab" as invalid scheme.
-        // WebKit will report the URI as "about:blank" after loading.
         webview.load_html(NEWTAB_HTML, None::<&str>);
     } else {
         webview.load_uri(url);
@@ -193,12 +259,19 @@ pub fn open_tab(
         #[weak] back_btn,
         #[weak] forward_btn,
         #[weak] page,
-        move |wv, _event| {
+        move |wv, event| {
             if is_selected(&tab_view, &page) {
                 back_btn.set_sensitive(wv.can_go_back());
                 forward_btn.set_sensitive(wv.can_go_forward());
                 let uri = wv.uri().unwrap_or_default();
                 url_bar.set_text(if is_newtab_uri(&uri) { "" } else { &uri });
+            }
+            if event == LoadEvent::Finished {
+                let uri = wv.uri().unwrap_or_default().to_string();
+                let title = wv.title().unwrap_or_default().to_string();
+                if !is_newtab_uri(&uri) && !uri.is_empty() {
+                    crate::backend::record_visit(uri, title);
+                }
             }
         }
     ));
@@ -235,13 +308,18 @@ fn setup_shortcuts(
     back_btn: &gtk4::Button,
     forward_btn: &gtk4::Button,
     reload_btn: &gtk4::Button,
+    notes_win: &libadwaita::Window,
+    history_panel: &HistoryPanel,
+    bookmarks_panel: &BookmarksPanel,
 ) {
     use gtk4::gdk::{Key, ModifierType};
 
     let key_ctl = gtk4::EventControllerKey::new();
-    // Capture phase: intercept before web content sees it.
     key_ctl.set_propagation_phase(gtk4::PropagationPhase::Capture);
     window.add_controller(key_ctl.clone());
+
+    let hp = history_panel.clone();
+    let bp = bookmarks_panel.clone();
 
     key_ctl.connect_key_pressed(glib::clone!(
         #[weak] tab_view,
@@ -249,15 +327,14 @@ fn setup_shortcuts(
         #[weak] back_btn,
         #[weak] forward_btn,
         #[weak] reload_btn,
+        #[weak] notes_win,
         #[upgrade_or] glib::Propagation::Proceed,
         move |_, keyval, _keycode, mods| {
             let ctrl  = mods.contains(ModifierType::CONTROL_MASK);
             let shift = mods.contains(ModifierType::SHIFT_MASK);
             let alt   = mods.contains(ModifierType::ALT_MASK);
 
-            // ── Special / non-printable keys ─────────────────────────────
             match keyval {
-                // F5 / Ctrl+F5 — reload / hard reload
                 Key::F5 => {
                     if ctrl {
                         with_webview(&tab_view, |wv| wv.reload_bypass_cache());
@@ -266,20 +343,17 @@ fn setup_shortcuts(
                     }
                     return glib::Propagation::Stop;
                 }
-                // F6 — focus address bar
                 Key::F6 => {
                     url_bar.grab_focus();
                     url_bar.select_region(0, -1);
                     return glib::Propagation::Stop;
                 }
-                // Escape — stop loading
                 Key::Escape => {
                     with_webview(&tab_view, |wv| {
                         if wv.is_loading() { wv.stop_loading(); }
                     });
-                    return glib::Propagation::Proceed; // let it close popovers too
+                    return glib::Propagation::Proceed;
                 }
-                // Alt+Left / Alt+Right — back / forward
                 Key::Left if alt => {
                     with_webview(&tab_view, |wv| wv.go_back());
                     return glib::Propagation::Stop;
@@ -288,7 +362,6 @@ fn setup_shortcuts(
                     with_webview(&tab_view, |wv| wv.go_forward());
                     return glib::Propagation::Stop;
                 }
-                // Ctrl+Tab / Ctrl+Shift+Tab — cycle tabs
                 Key::Tab if ctrl && !shift => {
                     cycle_tab(&tab_view, true);
                     return glib::Propagation::Stop;
@@ -297,7 +370,6 @@ fn setup_shortcuts(
                     cycle_tab(&tab_view, false);
                     return glib::Propagation::Stop;
                 }
-                // Shift+Tab (ISO_Left_Tab) with Ctrl
                 Key::ISO_Left_Tab if ctrl => {
                     cycle_tab(&tab_view, false);
                     return glib::Propagation::Stop;
@@ -305,60 +377,87 @@ fn setup_shortcuts(
                 _ => {}
             }
 
-            // ── Printable character shortcuts ─────────────────────────────
             if let Some(c) = keyval.to_unicode() {
-                // Normalize to lowercase so Shift state doesn't matter for letter shortcuts.
                 let ch = c.to_lowercase().next().unwrap_or(c);
-
                 match ch {
-                    // Ctrl+T — new tab
+                    'n' if ctrl && !shift => {
+                        crate::notes::toggle(&notes_win);
+                        return glib::Propagation::Stop;
+                    }
                     't' if ctrl && !shift => {
                         open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn,
                                  NEWTAB_URI, true);
                         url_bar.grab_focus();
                         return glib::Propagation::Stop;
                     }
-                    // Ctrl+W — close tab
                     'w' if ctrl => {
                         close_current_tab(&tab_view);
                         return glib::Propagation::Stop;
                     }
-                    // Ctrl+L — focus address bar
                     'l' if ctrl => {
                         url_bar.grab_focus();
                         url_bar.select_region(0, -1);
                         return glib::Propagation::Stop;
                     }
-                    // Ctrl+R — reload
                     'r' if ctrl && !shift => {
                         with_webview(&tab_view, |wv| wv.reload());
                         return glib::Propagation::Stop;
                     }
-                    // Ctrl+Shift+R — hard reload
                     'r' if ctrl && shift => {
                         with_webview(&tab_view, |wv| wv.reload_bypass_cache());
                         return glib::Propagation::Stop;
                     }
-                    // Ctrl+= or Ctrl++ — zoom in
+                    'h' if ctrl && !shift => {
+                        let opening = !hp.is_open();
+                        bp.hide();
+                        if opening {
+                            hp.show();
+                            tab_view.add_css_class("browse-dim");
+                        } else {
+                            hp.hide();
+                        }
+                        return glib::Propagation::Stop;
+                    }
+                    'b' if ctrl && !shift => {
+                        let opening = !bp.is_open();
+                        hp.hide();
+                        if opening {
+                            bp.show();
+                            tab_view.add_css_class("browse-dim");
+                        } else {
+                            bp.hide();
+                        }
+                        return glib::Propagation::Stop;
+                    }
+                    'd' if ctrl => {
+                        let url = url_bar.text().to_string();
+                        if !url.is_empty() && url != "about:blank" {
+                            let title = tab_view
+                                .selected_page()
+                                .and_then(|p| page_webview(&p))
+                                .and_then(|wv| wv.title())
+                                .map(|t| t.to_string())
+                                .unwrap_or_else(|| url.clone());
+                            crate::backend::add_bookmark(url, title);
+                        }
+                        return glib::Propagation::Stop;
+                    }
                     '=' | '+' if ctrl => {
                         with_webview(&tab_view, |wv| {
                             wv.set_zoom_level((wv.zoom_level() * 1.1).min(5.0));
                         });
                         return glib::Propagation::Stop;
                     }
-                    // Ctrl+- — zoom out
                     '-' if ctrl => {
                         with_webview(&tab_view, |wv| {
                             wv.set_zoom_level((wv.zoom_level() / 1.1).max(0.25));
                         });
                         return glib::Propagation::Stop;
                     }
-                    // Ctrl+0 — reset zoom
                     '0' if ctrl => {
                         with_webview(&tab_view, |wv| wv.set_zoom_level(1.0));
                         return glib::Propagation::Stop;
                     }
-                    // Ctrl+1…8 — jump to tab N
                     '1'..='8' if ctrl => {
                         let idx = (ch as i32) - ('1' as i32);
                         if idx < tab_view.n_pages() {
@@ -366,7 +465,6 @@ fn setup_shortcuts(
                         }
                         return glib::Propagation::Stop;
                     }
-                    // Ctrl+9 — jump to last tab
                     '9' if ctrl => {
                         let last = tab_view.n_pages() - 1;
                         if last >= 0 {
@@ -386,9 +484,7 @@ fn setup_shortcuts(
 // ── Tab helpers ───────────────────────────────────────────────────────────────
 
 fn close_current_tab(tab_view: &libadwaita::TabView) {
-    if tab_view.n_pages() <= 1 {
-        return; // keep at least one tab open
-    }
+    if tab_view.n_pages() <= 1 { return; }
     if let Some(page) = tab_view.selected_page() {
         tab_view.close_page(&page);
     }
@@ -427,9 +523,7 @@ fn page_webview(page: &libadwaita::TabPage) -> Option<WebView> {
 }
 
 fn is_selected(tab_view: &libadwaita::TabView, page: &libadwaita::TabPage) -> bool {
-    tab_view
-        .selected_page()
-        .map_or(false, |p| p.as_ptr() == page.as_ptr())
+    tab_view.selected_page().map_or(false, |p| p.as_ptr() == page.as_ptr())
 }
 
 fn sync_nav(
@@ -448,7 +542,7 @@ fn is_newtab_uri(uri: &str) -> bool {
     uri.is_empty() || uri == "about:blank"
 }
 
-fn normalize_url(input: &str) -> String {
+pub fn normalize_url(input: &str) -> String {
     let s = input.trim();
     if s.starts_with("http://")
         || s.starts_with("https://")

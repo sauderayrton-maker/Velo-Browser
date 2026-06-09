@@ -22,6 +22,9 @@ pub fn create_webview() -> WebView {
         settings.set_enable_smooth_scrolling(true);
         settings.set_javascript_can_open_windows_automatically(false);
         settings.set_media_playback_requires_user_gesture(true);
+        // Don't initialize media stream pipeline at startup — avoids GStreamer NULL
+        // errors on systems missing gst-plugins-good (autoaudiosink).
+        settings.set_enable_media_stream(false);
         settings.set_user_agent_with_application_details(
             Some("Velo"),
             Some(env!("CARGO_PKG_VERSION")),

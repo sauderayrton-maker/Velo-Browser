@@ -1,0 +1,14 @@
+services:
+  velo-backend:
+    build: ./backend
+    container_name: velo-backend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7777:7777"
+    volumes:
+      - velo-data:/data
+    environment:
+      DATA_DIR: /data
+
+volumes:
+  velo-data:

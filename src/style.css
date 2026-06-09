@@ -1,86 +1,179 @@
-/* Velo — Dark Glass Theme */
+/* Velo — Lexus Cockpit / Hyprland Glass */
 
-/* ── Adwaita color overrides ─────────────────────────────────────────────── */
-@define-color accent_color #8b5cf6;
-@define-color accent_bg_color #7c3aed;
-@define-color accent_fg_color #ffffff;
-@define-color window_bg_color #0f0e17;
-@define-color view_bg_color #0a0912;
-@define-color headerbar_bg_color #13111d;
-@define-color headerbar_fg_color rgba(255, 255, 255, 0.85);
-@define-color headerbar_border_color rgba(255, 255, 255, 0.06);
+/* ── Adwaita tokens ──────────────────────────────────────────────────────── */
+@define-color accent_color          #8ab4d4;
+@define-color accent_bg_color       #4d8fb8;
+@define-color accent_fg_color       #ffffff;
+@define-color window_bg_color       #09090c;
+@define-color view_bg_color         #06060a;
+@define-color headerbar_bg_color    rgba(8, 9, 14, 0.82);
+@define-color headerbar_fg_color    rgba(225, 234, 248, 0.90);
+@define-color headerbar_border_color rgba(195, 215, 238, 0.07);
 
 /* ── Window ──────────────────────────────────────────────────────────────── */
 window.background {
-    background-color: #0f0e17;
+    background-color: transparent;
 }
 
-/* ── Header bar ──────────────────────────────────────────────────────────── */
+/* ── Header bar — cockpit console ────────────────────────────────────────── */
 headerbar {
-    background-color: #13111d;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+    background: rgba(7, 8, 13, 0.86);
+    border-bottom: 1px solid rgba(195, 215, 238, 0.07);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 1px 0 rgba(0, 0, 0, 0.4);
     padding: 4px 8px;
 }
 
-/* ── URL bar — pill with glass surface ───────────────────────────────────── */
+/* ── URL bar — precision instrument display ──────────────────────────────── */
 entry.url-bar {
-    border-radius: 20px;
+    border-radius: 22px;
     min-width: 240px;
-    font-size: 14px;
-    padding: 5px 18px;
-    background-color: rgba(255, 255, 255, 0.055);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    color: rgba(255, 255, 255, 0.88);
-    box-shadow: none;
-    transition: background-color 150ms, border-color 150ms, box-shadow 150ms;
+    font-size: 13.5px;
+    padding: 5px 20px;
+    background-color: rgba(190, 210, 232, 0.055);
+    border: 1px solid rgba(205, 222, 242, 0.10);
+    color: rgba(228, 238, 252, 0.88);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
-
 entry.url-bar:focus {
-    background-color: rgba(255, 255, 255, 0.08);
-    border-color: #8b5cf6;
-    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25);
+    background-color: rgba(195, 218, 242, 0.09);
+    border-color: rgba(138, 180, 212, 0.40);
+    box-shadow:
+        0 0 0 2px rgba(138, 180, 212, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 /* ── Nav buttons ─────────────────────────────────────────────────────────── */
-.linked > button {
-    padding: 5px 10px;
-}
+.linked > button { padding: 5px 10px; }
 
 button.flat {
     border-radius: 8px;
-    color: rgba(255, 255, 255, 0.5);
-    transition: background-color 120ms, color 120ms;
+    color: rgba(196, 216, 240, 0.44);
+    transition: background-color 140ms ease, color 140ms ease;
 }
-
 button.flat:hover {
-    background-color: rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.88);
+    background-color: rgba(196, 216, 240, 0.08);
+    color: rgba(228, 242, 255, 0.88);
 }
-
 button.flat:active {
-    background-color: rgba(255, 255, 255, 0.12);
+    background-color: rgba(196, 216, 240, 0.14);
     color: #ffffff;
 }
-
 button.flat:disabled {
-    color: rgba(255, 255, 255, 0.18);
+    color: rgba(196, 216, 240, 0.16);
 }
 
 /* ── Tab bar ─────────────────────────────────────────────────────────────── */
 tabbar {
-    background-color: #0d0c14;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    margin-bottom: 0;
+    background-color: rgba(5, 6, 11, 0.88);
+    border-bottom: 1px solid rgba(195, 215, 238, 0.045);
 }
 
-/* ── Loading progress stripe ─────────────────────────────────────────────── */
+/* ── Progress stripe ─────────────────────────────────────────────────────── */
 window > * progressbar trough {
     min-height: 2px;
     background-color: transparent;
 }
-
 progressbar progress {
-    background-color: #8b5cf6;
+    background-color: #8ab4d4;
     border-radius: 0;
+}
+
+/* ── Tab view dim — "environment reacts" when a panel opens ──────────────── */
+adw-tab-view {
+    transition: opacity 200ms ease;
+}
+adw-tab-view.browse-dim {
+    opacity: 0.42;
+}
+
+/* ── Notes popup ─────────────────────────────────────────────────────────── */
+textview.notes-view {
+    background-color: #0b0d12;
+    color: rgba(215, 228, 248, 0.86);
+    font-family: 'JetBrains Mono', 'Fira Mono', 'Cascadia Code', monospace;
+    font-size: 13.5px;
+}
+textview.notes-view > text {
+    background-color: #0b0d12;
+    color: rgba(215, 228, 248, 0.86);
+}
+textview.notes-view > text selection {
+    background-color: rgba(138, 180, 212, 0.26);
+    color: #ffffff;
+}
+
+/* ── Panel windows (history, bookmarks) ──────────────────────────────────── */
+window.panel-window {
+    background-color: #0a0b11;
+}
+
+window.panel-window headerbar.panel-bar {
+    background: rgba(8, 9, 15, 0.94);
+    border-bottom: 1px solid rgba(195, 215, 240, 0.07);
+    box-shadow: none;
+}
+
+.panel-title {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 3.5px;
+    color: rgba(185, 210, 235, 0.36);
+}
+
+.panel-search {
+    font-size: 13px;
+    border-radius: 10px;
+    background-color: rgba(195, 215, 240, 0.055);
+    border: 1px solid rgba(205, 222, 242, 0.09);
+    color: rgba(225, 235, 250, 0.85);
+}
+.panel-search:focus {
+    background-color: rgba(195, 215, 240, 0.08);
+    border-color: rgba(138, 180, 212, 0.30);
+}
+
+/* ── Panel list rows ─────────────────────────────────────────────────────── */
+.panel-list {
+    background-color: transparent;
+}
+.panel-list > row {
+    background-color: transparent;
+    border-bottom: 1px solid rgba(195, 215, 240, 0.04);
+    transition: background-color 100ms ease;
+}
+.panel-list > row:hover {
+    background-color: rgba(195, 215, 240, 0.05);
+}
+.panel-list > row:active {
+    background-color: rgba(138, 180, 212, 0.10);
+}
+
+.row-title {
+    font-size: 13px;
+    font-weight: 450;
+    color: rgba(222, 234, 252, 0.84);
+}
+.row-meta {
+    font-size: 11.5px;
+    color: rgba(165, 190, 218, 0.36);
+}
+.row-time {
+    font-size: 10.5px;
+    color: rgba(148, 175, 208, 0.26);
+    font-variant-numeric: tabular-nums;
+}
+
+.row-delete-btn {
+    color: rgba(185, 210, 240, 0.20);
+    min-width: 26px;
+    min-height: 26px;
+    border-radius: 6px;
+    padding: 2px;
+}
+.row-delete-btn:hover {
+    background-color: rgba(220, 75, 75, 0.14);
+    color: rgba(240, 135, 135, 0.80);
 }

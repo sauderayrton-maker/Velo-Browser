@@ -3,105 +3,230 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
+<title>New Tab</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
 
 body {
-    font-family: -apple-system, 'Helvetica Neue', system-ui, sans-serif;
+    font-family: -apple-system, 'SF Pro Display', 'Inter', 'Helvetica Neue', system-ui, sans-serif;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 40px;
-    background: #0f0e17;
-    background-image: radial-gradient(ellipse 90% 55% at 50% -5%,
-        rgba(120, 80, 255, 0.14) 0%, transparent 65%);
-    color: #fffffe;
+    gap: 52px;
+    background: #09090c;
+    background-image:
+        radial-gradient(ellipse 100% 55% at 50% -4%,
+            rgba(138, 180, 212, 0.07) 0%,
+            rgba(90, 130, 172, 0.02) 52%,
+            transparent 72%),
+        linear-gradient(180deg,
+            rgba(20, 26, 38, 0.18) 0%,
+            transparent 40%);
+    color: rgba(228, 238, 252, 0.90);
     -webkit-user-select: none;
     user-select: none;
 }
 
-@media (prefers-color-scheme: light) {
-    body {
-        background: #fafaf9;
-        background-image: radial-gradient(ellipse 90% 55% at 50% -5%,
-            rgba(139, 92, 246, 0.08) 0%, transparent 65%);
-        color: #0f0e17;
-    }
-    .bar {
-        background: rgba(0, 0, 0, 0.04) !important;
-        border-color: rgba(0, 0, 0, 0.08) !important;
-        color: #0f0e17 !important;
-    }
-    .bar::placeholder { color: rgba(0, 0, 0, 0.28) !important; }
-    .bar:focus {
-        background: rgba(0, 0, 0, 0.06) !important;
-        border-color: #7c3aed !important;
-        box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.13) !important;
-    }
+/* ── Speed arc — tachometer motif ──────────────────────────────────────── */
+.arc-wrap {
+    position: fixed;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 640px;
+    height: 3px;
+    overflow: visible;
+    pointer-events: none;
+}
+.arc-wrap svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    overflow: visible;
+}
+
+/* ── Entry animation ────────────────────────────────────────────────────── */
+@keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* ── Clock ──────────────────────────────────────────────────────────────── */
+.hero {
+    text-align: center;
+    animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .clock {
-    font-size: 92px;
-    font-weight: 200;
-    letter-spacing: -5px;
+    font-size: 96px;
+    font-weight: 100;
+    letter-spacing: -6px;
     line-height: 1;
-    opacity: 0.9;
+    color: rgba(228, 238, 252, 0.92);
     font-variant-numeric: tabular-nums;
+    text-shadow:
+        0 0 80px rgba(138, 180, 212, 0.08),
+        0 2px 40px rgba(0, 0, 0, 0.5);
 }
 
-.wrap { width: min(580px, 88vw); }
+.date-line {
+    margin-top: 14px;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 2.8px;
+    text-transform: uppercase;
+    color: rgba(175, 198, 226, 0.28);
+}
+
+/* ── Search ─────────────────────────────────────────────────────────────── */
+.search-wrap {
+    width: min(540px, 88vw);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.07s both;
+}
 
 .bar {
     display: block;
     width: 100%;
     padding: 15px 28px;
-    background: rgba(255, 255, 255, 0.06);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
-    backdrop-filter: blur(24px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.11);
+    background: rgba(185, 208, 232, 0.046);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
+    backdrop-filter: blur(28px) saturate(140%);
+    border: 1px solid rgba(205, 222, 242, 0.09);
     border-radius: 999px;
-    color: #fffffe;
-    font-size: 16px;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 12px 40px rgba(0, 0, 0, 0.36),
+        0 2px 8px rgba(0, 0, 0, 0.20);
+    color: rgba(228, 238, 252, 0.88);
+    font-size: 15px;
     font-family: inherit;
     outline: none;
-    box-shadow: 0 2px 24px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255,255,255,0.06);
-    transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+    transition: background 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
     -webkit-user-select: text;
     user-select: text;
 }
 
-.bar::placeholder { color: rgba(255, 255, 255, 0.28); }
+.bar::placeholder { color: rgba(172, 196, 222, 0.24); }
 
 .bar:focus {
-    background: rgba(255, 255, 255, 0.09);
-    border-color: #8b5cf6;
-    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.22),
-                0 2px 24px rgba(0, 0, 0, 0.3),
-                inset 0 1px 0 rgba(255,255,255,0.08);
+    background: rgba(195, 218, 242, 0.065);
+    border-color: rgba(138, 180, 212, 0.28);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 0 0 3px rgba(138, 178, 212, 0.09),
+        0 12px 40px rgba(0, 0, 0, 0.42);
+}
+
+/* ── Brand ──────────────────────────────────────────────────────────────── */
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    animation: fade-in 0.8s ease 0.25s both;
+}
+
+.brand-line {
+    width: 28px;
+    height: 1px;
+    background: rgba(160, 188, 220, 0.14);
+}
+
+.brand-word {
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: rgba(165, 192, 222, 0.18);
+}
+
+/* ── Shortcuts row ──────────────────────────────────────────────────────── */
+.shortcuts {
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    font-size: 10px;
+    color: rgba(160, 188, 220, 0.22);
+    letter-spacing: 0.3px;
+}
+.search-wrap:focus-within .shortcuts { opacity: 1; }
+.shortcuts kbd {
+    background: rgba(195, 215, 240, 0.06);
+    border: 1px solid rgba(195, 215, 240, 0.08);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: inherit;
+    font-size: 10px;
 }
 </style>
 </head>
 <body>
-<time class="clock" id="clock"></time>
-<div class="wrap">
-    <form id="form">
+
+<!-- Tachometer arc motif -->
+<div class="arc-wrap">
+    <svg viewBox="0 0 640 3" preserveAspectRatio="none">
+        <defs>
+            <linearGradient id="arc-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%"   stop-color="rgba(138,180,212,0)" />
+                <stop offset="30%"  stop-color="rgba(138,180,212,0.12)" />
+                <stop offset="50%"  stop-color="rgba(138,180,212,0.22)" />
+                <stop offset="70%"  stop-color="rgba(138,180,212,0.12)" />
+                <stop offset="100%" stop-color="rgba(138,180,212,0)" />
+            </linearGradient>
+        </defs>
+        <rect x="0" y="1" width="640" height="1" fill="url(#arc-grad)" />
+    </svg>
+</div>
+
+<div class="hero">
+    <time class="clock" id="clock"></time>
+    <div class="date-line" id="date"></div>
+</div>
+
+<div class="search-wrap">
+    <form id="form" style="width:100%">
         <input class="bar" id="q" type="text"
-               placeholder="Search or type a URL"
+               placeholder="Search or navigate"
                spellcheck="false" autocomplete="off" autofocus>
     </form>
+    <div class="shortcuts">
+        <kbd>Ctrl+H</kbd> History &nbsp;&middot;&nbsp;
+        <kbd>Ctrl+B</kbd> Bookmarks &nbsp;&middot;&nbsp;
+        <kbd>Ctrl+D</kbd> Bookmark &nbsp;&middot;&nbsp;
+        <kbd>Ctrl+N</kbd> Notes
+    </div>
+    <div class="brand">
+        <div class="brand-line"></div>
+        <span class="brand-word">Velo</span>
+        <div class="brand-line"></div>
+    </div>
 </div>
+
 <script>
 (function () {
-    function tick() {
+    var DAYS   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    var MONTHS = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+
+    function update() {
         var d = new Date();
-        document.getElementById('clock').textContent =
-            String(d.getHours()).padStart(2,'0') + ':' +
-            String(d.getMinutes()).padStart(2,'0');
+        document.getElementById('clock').textContent = pad(d.getHours()) + ':' + pad(d.getMinutes());
+        document.getElementById('date').textContent =
+            DAYS[d.getDay()] + '  ·  ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
     }
-    tick();
-    setInterval(tick, 1000);
+    update();
+    setInterval(update, 1000);
 
     document.getElementById('form').addEventListener('submit', function (e) {
         e.preventDefault();

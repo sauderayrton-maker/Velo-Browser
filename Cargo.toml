@@ -13,3 +13,6 @@ libadwaita = { version = "0.9", features = ["v1_4"] }
 webkit6 = { version = "0.6", features = ["v2_42"] }
 glib = "0.22"
 gio = "0.22"
+ureq = { version = "2", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
