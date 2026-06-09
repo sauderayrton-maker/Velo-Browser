@@ -1,24 +1,86 @@
-/* Velo Browser */
+/* Velo — Dark Glass Theme */
 
-/* Pill-shaped URL bar */
+/* ── Adwaita color overrides ─────────────────────────────────────────────── */
+@define-color accent_color #8b5cf6;
+@define-color accent_bg_color #7c3aed;
+@define-color accent_fg_color #ffffff;
+@define-color window_bg_color #0f0e17;
+@define-color view_bg_color #0a0912;
+@define-color headerbar_bg_color #13111d;
+@define-color headerbar_fg_color rgba(255, 255, 255, 0.85);
+@define-color headerbar_border_color rgba(255, 255, 255, 0.06);
+
+/* ── Window ──────────────────────────────────────────────────────────────── */
+window.background {
+    background-color: #0f0e17;
+}
+
+/* ── Header bar ──────────────────────────────────────────────────────────── */
+headerbar {
+    background-color: #13111d;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+    padding: 4px 8px;
+}
+
+/* ── URL bar — pill with glass surface ───────────────────────────────────── */
 entry.url-bar {
     border-radius: 20px;
-    padding: 2px 12px;
     min-width: 240px;
     font-size: 14px;
+    padding: 5px 18px;
+    background-color: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    color: rgba(255, 255, 255, 0.88);
+    box-shadow: none;
+    transition: background-color 150ms, border-color 150ms, box-shadow 150ms;
 }
 
-/* Tighten up the linked nav button group */
+entry.url-bar:focus {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: #8b5cf6;
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25);
+}
+
+/* ── Nav buttons ─────────────────────────────────────────────────────────── */
 .linked > button {
-    padding: 6px 10px;
+    padding: 5px 10px;
 }
 
-/* Tab bar sits flush under the header */
+button.flat {
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.5);
+    transition: background-color 120ms, color 120ms;
+}
+
+button.flat:hover {
+    background-color: rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.88);
+}
+
+button.flat:active {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}
+
+button.flat:disabled {
+    color: rgba(255, 255, 255, 0.18);
+}
+
+/* ── Tab bar ─────────────────────────────────────────────────────────────── */
 tabbar {
+    background-color: #0d0c14;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     margin-bottom: 0;
 }
 
-/* Thin loading progress stripe at top */
+/* ── Loading progress stripe ─────────────────────────────────────────────── */
 window > * progressbar trough {
     min-height: 2px;
+    background-color: transparent;
+}
+
+progressbar progress {
+    background-color: #8b5cf6;
+    border-radius: 0;
 }

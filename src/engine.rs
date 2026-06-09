@@ -1,5 +1,7 @@
 use std::cell::OnceCell;
-use webkit6::{prelude::*, HardwareAccelerationPolicy, WebContext, WebView};
+// Import WebViewExt directly — avoids ambiguity with gtk4::WidgetExt::settings().
+use webkit6::prelude::WebViewExt;
+use webkit6::{HardwareAccelerationPolicy, WebContext, WebView};
 
 thread_local! {
     // One shared context for all tabs: single network process, shared cache and cookies.
@@ -8,12 +10,12 @@ thread_local! {
 
 pub fn create_webview() -> WebView {
     CONTEXT.with(|cell| {
-        let ctx = cell.get_or_init(build_context);
+        let ctx = cell.get_or_init(WebContext::new);
 
         let webview = WebView::builder().web_context(ctx).build();
 
-        let settings = webview.settings();
-        // Always use the GPU compositor — eliminates software fallback stalls.
+        // settings() returns Option<Settings> — always Some for a live WebView.
+        let settings = webview.settings().expect("WebView has no settings");
         settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Always);
         settings.set_enable_javascript(true);
         settings.set_enable_developer_extras(true);
@@ -27,27 +29,4 @@ pub fn create_webview() -> WebView {
 
         webview
     })
-}
-
-fn build_context() -> WebContext {
-    // Persist cache and site data between sessions.
-    let cache_dir = {
-        let mut p = glib::user_cache_dir();
-        p.push("velo");
-        p.to_string_lossy().into_owned()
-    };
-    let data_dir = {
-        let mut p = glib::user_data_dir();
-        p.push("velo");
-        p.to_string_lossy().into_owned()
-    };
-
-    let data_mgr = webkit6::WebsiteDataManager::builder()
-        .base_cache_directory(&cache_dir)
-        .base_data_directory(&data_dir)
-        .build();
-
-    WebContext::builder()
-        .website_data_manager(&data_mgr)
-        .build()
 }

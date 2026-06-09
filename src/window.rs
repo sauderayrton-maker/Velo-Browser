@@ -5,7 +5,8 @@ use webkit6::WebView;
 
 use crate::engine;
 
-const HOME_URL: &str = "https://start.duckduckgo.com";
+const NEWTAB_HTML: &str = include_str!("newtab.html");
+const NEWTAB_URI:  &str = "about:newtab";
 
 pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::ApplicationWindow {
     let window = libadwaita::ApplicationWindow::builder()
@@ -30,8 +31,7 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
 
     window.set_content(Some(&toolbar_view));
 
-    url_bar.set_text(HOME_URL);
-    open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, HOME_URL, true);
+    open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, NEWTAB_URI, true);
 
     tab_view.connect_selected_page_notify(glib::clone!(
         #[weak] back_btn,
@@ -133,7 +133,7 @@ fn build_header(
         #[weak] forward_btn,
         #[weak] reload_btn,
         move |_| {
-            open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, HOME_URL, true);
+            open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, NEWTAB_URI, true);
             url_bar.grab_focus();
         }
     ));
@@ -151,7 +151,13 @@ pub fn open_tab(
     select: bool,
 ) -> libadwaita::TabPage {
     let webview = engine::create_webview();
-    webview.load_uri(url);
+    if url == NEWTAB_URI {
+        // None base URI avoids WebKit rejecting "about:newtab" as invalid scheme.
+        // WebKit will report the URI as "about:blank" after loading.
+        webview.load_html(NEWTAB_HTML, None::<&str>);
+    } else {
+        webview.load_uri(url);
+    }
 
     let page = tab_view.append(&webview);
     page.set_title("New Tab");
@@ -166,7 +172,8 @@ pub fn open_tab(
         #[weak] page,
         move |wv| {
             if is_selected(&tab_view, &page) {
-                url_bar.set_text(wv.uri().as_deref().unwrap_or(""));
+                let uri = wv.uri().unwrap_or_default();
+                url_bar.set_text(if is_newtab_uri(&uri) { "" } else { &uri });
             }
         }
     ));
@@ -190,7 +197,8 @@ pub fn open_tab(
             if is_selected(&tab_view, &page) {
                 back_btn.set_sensitive(wv.can_go_back());
                 forward_btn.set_sensitive(wv.can_go_forward());
-                url_bar.set_text(wv.uri().as_deref().unwrap_or(""));
+                let uri = wv.uri().unwrap_or_default();
+                url_bar.set_text(if is_newtab_uri(&uri) { "" } else { &uri });
             }
         }
     ));
@@ -306,7 +314,7 @@ fn setup_shortcuts(
                     // Ctrl+T — new tab
                     't' if ctrl && !shift => {
                         open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn,
-                                 HOME_URL, true);
+                                 NEWTAB_URI, true);
                         url_bar.grab_focus();
                         return glib::Propagation::Stop;
                     }
@@ -432,9 +440,12 @@ fn sync_nav(
 ) {
     back_btn.set_sensitive(wv.can_go_back());
     forward_btn.set_sensitive(wv.can_go_forward());
-    if let Some(uri) = wv.uri() {
-        url_bar.set_text(&uri);
-    }
+    let uri = wv.uri().unwrap_or_default();
+    url_bar.set_text(if is_newtab_uri(&uri) { "" } else { &uri });
+}
+
+fn is_newtab_uri(uri: &str) -> bool {
+    uri.is_empty() || uri == "about:blank"
 }
 
 fn normalize_url(input: &str) -> String {
@@ -449,7 +460,7 @@ fn normalize_url(input: &str) -> String {
     if s.contains('.') && !s.contains(' ') && !s.is_empty() {
         return format!("https://{s}");
     }
-    format!("https://duckduckgo.com/?q={}", s.replace(' ', "+"))
+    format!("https://www.google.com/search?q={}", s.replace(' ', "+"))
 }
 
 fn load_css() {
