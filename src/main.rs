@@ -7,6 +7,7 @@ mod downloads;
 mod engine;
 mod history;
 mod notes;
+mod update;
 mod window;
 
 fn main() -> glib::ExitCode {

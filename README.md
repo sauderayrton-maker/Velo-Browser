@@ -18,6 +18,8 @@ open — a subtle Hyprland-style "the environment moves with you" feel.
 - **Notes** applet — a scratchpad that persists to disk
 - **Downloads** applet — files save to `~/Downloads` with live progress,
   cancel, and "show in folder"
+- **Self-update** — "Check for Updates…" in the menu pulls, rebuilds, and
+  reinstalls the latest commit
 - Local-only backend service for history/bookmarks, auto-started on launch
 - Dark, low-glare cockpit theme tuned for long sessions
 
@@ -79,13 +81,33 @@ Run it with `velo`, or launch "Velo" from your application menu.
 To remove everything Velo installed:
 
 ```bash
-sudo make uninstall PREFIX=/usr/local
+make uninstall            # or: ./uninstall.sh
 ```
+
+This prompts for `sudo` itself, removes `velo`, `velo-backend`, the desktop
+entry, and the icon (refreshing the icon cache), and asks before deleting
+your local history/bookmarks/notes data. A copy is also installed as
+`velo-uninstall`, so it works even if you've deleted this cloned repo.
 
 ### Run without installing
 
 ```bash
 cargo run
+```
+
+## Updating
+
+Velo can update itself: open the menu and choose **"Check for Updates…"**.
+This fetches the repo it was built from, and if a newer commit exists on the
+remote, offers to pull, rebuild, and reinstall it (you'll be prompted for
+your password via `pkexec` to finish the install). When it's done, choose
+"Restart Now" to relaunch with the new version.
+
+This only works if the cloned repo Velo was built from is still present and
+unmodified on disk. From the command line, the same process is:
+
+```bash
+./update.sh
 ```
 
 ## The backend service
@@ -121,6 +143,11 @@ installed copy.
   off your machine.
 - The Docker variant runs the backend as a non-root user and is published
   only to `127.0.0.1`.
+- "Check for Updates" runs `git fetch`/`git rev-parse` against the repo's
+  configured remote to compare commit hashes — no other network requests are
+  made until you choose "Update Now". The actual update (`git pull`, build,
+  install) only escalates privileges for the final file-copy step, via
+  `pkexec`/`sudo`.
 
 ## Keyboard shortcuts
 

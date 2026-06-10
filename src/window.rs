@@ -615,6 +615,11 @@ fn setup_menu(
         move |_, _| with_webview(&tab_view, |wv| wv.set_zoom_level(1.0))
     ));
 
+    add_action("check-update").connect_activate(glib::clone!(
+        #[weak] window,
+        move |_, _| check_for_updates(&window)
+    ));
+
     let menu = gio::Menu::new();
 
     let nav = gio::Menu::new();
@@ -635,6 +640,10 @@ fn setup_menu(
     zoom.append(Some("Zoom Out"), Some("win.zoom-out"));
     zoom.append(Some("Reset Zoom"), Some("win.zoom-reset"));
     menu.append_section(None, &zoom);
+
+    let updates = gio::Menu::new();
+    updates.append(Some("Check for Updates…"), Some("win.check-update"));
+    menu.append_section(None, &updates);
 
     menu_btn.set_menu_model(Some(&menu));
 }
@@ -719,6 +728,143 @@ fn bookmark_current_page(tab_view: &libadwaita::TabView, url_bar: &gtk4::Entry) 
         .map(|t| t.to_string())
         .unwrap_or_else(|| url.clone());
     crate::backend::add_bookmark(url, title);
+}
+
+// ── Self-update ────────────────────────────────────────────────────────────────
+
+fn check_for_updates(window: &libadwaita::ApplicationWindow) {
+    crate::update::check_for_update(glib::clone!(
+        #[weak] window,
+        #[upgrade_or] (),
+        move |result| match result {
+            crate::update::CheckResult::UpToDate => show_alert(
+                &window,
+                "Velo is up to date",
+                &format!("You're running the latest version (commit {}).", crate::update::CURRENT_COMMIT),
+            ),
+            crate::update::CheckResult::Available { local, remote } => {
+                let dialog = gtk4::AlertDialog::builder()
+                    .modal(true)
+                    .message("Update available")
+                    .detail(format!(
+                        "Velo {local} → {remote} is available.\n\n\
+                         Pull, build, and install the update now? \
+                         You may be asked for your password to finish installing."
+                    ))
+                    .buttons(["Later", "Update Now"])
+                    .cancel_button(0)
+                    .default_button(1)
+                    .build();
+
+                dialog.choose(Some(&window), gtk4::gio::Cancellable::NONE, glib::clone!(
+                    #[weak] window,
+                    #[upgrade_or] (),
+                    move |response| {
+                        if matches!(response, Ok(1)) {
+                            start_update(&window);
+                        }
+                    }
+                ));
+            }
+            crate::update::CheckResult::Unavailable(msg) => {
+                show_alert(&window, "Can't check for updates", &msg)
+            }
+        }
+    ));
+}
+
+fn start_update(window: &libadwaita::ApplicationWindow) {
+    let progress = progress_dialog(
+        window,
+        "Updating Velo…",
+        "Pulling, building, and installing the latest version.\nThis may take a few minutes.",
+    );
+
+    crate::update::run_update(glib::clone!(
+        #[weak] window,
+        #[strong] progress,
+        #[upgrade_or] (),
+        move |result| {
+            progress.close();
+            match result {
+                crate::update::UpdateResult::Success => {
+                    let dialog = gtk4::AlertDialog::builder()
+                        .modal(true)
+                        .message("Update complete")
+                        .detail("Velo has been updated. Restart now to use the new version?")
+                        .buttons(["Later", "Restart Now"])
+                        .cancel_button(0)
+                        .default_button(1)
+                        .build();
+
+                    dialog.choose(Some(&window), gtk4::gio::Cancellable::NONE, |response| {
+                        if matches!(response, Ok(1)) {
+                            crate::update::restart();
+                        }
+                    });
+                }
+                crate::update::UpdateResult::Failed(msg) => {
+                    show_alert(&window, "Update failed", &msg)
+                }
+            }
+        }
+    ));
+}
+
+fn show_alert(window: &libadwaita::ApplicationWindow, message: &str, detail: &str) {
+    gtk4::AlertDialog::builder()
+        .modal(true)
+        .message(message)
+        .detail(detail)
+        .buttons(["OK"])
+        .build()
+        .show(Some(window));
+}
+
+/// A small modal "working" dialog with a spinner, shown while an update runs
+/// in the background. Caller closes it via the returned handle.
+fn progress_dialog(parent: &libadwaita::ApplicationWindow, title: &str, body: &str) -> gtk4::Window {
+    let spinner = gtk4::Spinner::builder()
+        .spinning(true)
+        .width_request(32)
+        .height_request(32)
+        .halign(gtk4::Align::Center)
+        .build();
+
+    let title_lbl = gtk4::Label::builder()
+        .label(title)
+        .css_classes(vec!["title-4"])
+        .build();
+
+    let body_lbl = gtk4::Label::builder()
+        .label(body)
+        .wrap(true)
+        .justify(gtk4::Justification::Center)
+        .css_classes(vec!["dim-label"])
+        .build();
+
+    let content = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Vertical)
+        .spacing(14)
+        .margin_top(28)
+        .margin_bottom(28)
+        .margin_start(28)
+        .margin_end(28)
+        .build();
+    content.append(&spinner);
+    content.append(&title_lbl);
+    content.append(&body_lbl);
+
+    let win = gtk4::Window::builder()
+        .transient_for(parent)
+        .modal(true)
+        .resizable(false)
+        .deletable(false)
+        .destroy_with_parent(true)
+        .build();
+    win.set_child(Some(&content));
+    win.present();
+    win
 }
 
 // ── Tab helpers ───────────────────────────────────────────────────────────────
