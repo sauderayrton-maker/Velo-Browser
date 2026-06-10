@@ -5,8 +5,11 @@ mod backend;
 mod bookmarks;
 mod downloads;
 mod engine;
+mod find_bar;
 mod history;
 mod notes;
+mod passwords;
+mod passwords_panel;
 mod update;
 mod window;
 

@@ -17,11 +17,19 @@ window.background {
 
 /* ── Header bar — cockpit console ────────────────────────────────────────── */
 headerbar {
-    background: rgba(7, 8, 13, 0.86);
+    background-color: rgba(7, 8, 13, 0.86);
+    background-image: linear-gradient(90deg,
+        rgba(138, 180, 212, 0) 0%,
+        rgba(138, 180, 212, 0.40) 50%,
+        rgba(138, 180, 212, 0) 100%);
+    background-repeat: no-repeat;
+    background-size: 100% 1px;
+    background-position: top center;
     border-bottom: 1px solid rgba(195, 215, 238, 0.07);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.05),
-        0 1px 0 rgba(0, 0, 0, 0.4);
+        0 1px 0 rgba(0, 0, 0, 0.4),
+        0 1px 12px rgba(138, 180, 212, 0.06);
     padding: 4px 8px;
 }
 
@@ -38,20 +46,34 @@ entry.url-bar {
     transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 entry.url-bar:focus {
-    background-color: rgba(195, 218, 242, 0.09);
-    border-color: rgba(138, 180, 212, 0.40);
+    background-color: rgba(195, 218, 242, 0.10);
+    border-color: rgba(138, 180, 212, 0.50);
     box-shadow:
-        0 0 0 2px rgba(138, 180, 212, 0.12),
+        0 0 0 3px rgba(138, 180, 212, 0.16),
+        0 0 18px rgba(138, 180, 212, 0.12),
         inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-/* ── Brand mark ──────────────────────────────────────────────────────────── */
-.brand-mark {
+/* ── Brand mark — click to return to the start page ─────────────────────── */
+button.brand-mark {
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 4px;
-    color: rgba(138, 180, 212, 0.40);
+    color: rgba(138, 180, 212, 0.44);
     padding: 0 12px 0 6px;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    transition: color 160ms ease, text-shadow 160ms ease;
+}
+button.brand-mark:hover {
+    background: transparent;
+    color: rgba(190, 222, 250, 0.92);
+    text-shadow: 0 0 14px rgba(138, 180, 212, 0.55);
+}
+button.brand-mark:active {
+    color: #ffffff;
+    text-shadow: 0 0 18px rgba(138, 180, 212, 0.75);
 }
 
 /* ── Nav buttons ─────────────────────────────────────────────────────────── */
@@ -63,11 +85,12 @@ button.flat {
     transition: background-color 140ms ease, color 140ms ease;
 }
 button.flat:hover {
-    background-color: rgba(196, 216, 240, 0.08);
-    color: rgba(228, 242, 255, 0.88);
+    background-color: rgba(138, 180, 212, 0.12);
+    color: rgba(228, 242, 255, 0.92);
+    box-shadow: inset 0 0 0 1px rgba(138, 180, 212, 0.10);
 }
 button.flat:active {
-    background-color: rgba(196, 216, 240, 0.14);
+    background-color: rgba(138, 180, 212, 0.20);
     color: #ffffff;
 }
 button.flat:disabled {
@@ -78,6 +101,32 @@ button.flat:disabled {
 tabbar {
     background-color: rgba(5, 6, 11, 0.88);
     border-bottom: 1px solid rgba(195, 215, 238, 0.045);
+}
+
+tabbar tab:hover {
+    background-color: rgba(138, 180, 212, 0.07);
+}
+tabbar tab:selected {
+    background-color: rgba(138, 180, 212, 0.13);
+    box-shadow:
+        inset 0 -2px 0 rgba(138, 180, 212, 0.65),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+tabbar tab:selected:hover {
+    background-color: rgba(138, 180, 212, 0.17);
+}
+
+/* ── Find-in-page bar ────────────────────────────────────────────────────── */
+.find-bar {
+    padding: 6px 10px;
+    background-color: rgba(5, 6, 11, 0.92);
+    border-bottom: 1px solid rgba(195, 215, 238, 0.07);
+}
+.find-bar entry {
+    min-width: 220px;
+}
+.find-bar entry.error {
+    box-shadow: inset 0 0 0 1px rgba(224, 110, 110, 0.6);
 }
 
 /* ── Progress stripe ─────────────────────────────────────────────────────── */
@@ -191,4 +240,18 @@ textview.notes-view > text selection {
 .row-delete-btn:hover {
     background-color: rgba(220, 75, 75, 0.14);
     color: rgba(240, 135, 135, 0.80);
+}
+
+/* ── Scrollbars — accent-tinted to match the cockpit palette ────────────── */
+scrollbar slider {
+    background-color: rgba(138, 180, 212, 0.18);
+    border-radius: 8px;
+    min-width: 6px;
+    min-height: 6px;
+}
+scrollbar slider:hover {
+    background-color: rgba(138, 180, 212, 0.32);
+}
+scrollbar slider:active {
+    background-color: rgba(138, 180, 212, 0.48);
 }

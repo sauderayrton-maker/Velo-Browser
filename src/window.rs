@@ -1,13 +1,18 @@
 use std::rc::Rc;
 use gtk4::prelude::*;
 use libadwaita::prelude::*;
+use serde::Deserialize;
 use webkit6::prelude::*;
-use webkit6::{LoadEvent, WebView};
+use webkit6::{
+    javascriptcore, LoadEvent, NavigationPolicyDecision, NavigationType, PolicyDecisionType, WebView,
+};
 
 use crate::engine;
+use crate::find_bar::FindBar;
 use crate::history::HistoryPanel;
 use crate::bookmarks::BookmarksPanel;
 use crate::downloads::DownloadsPanel;
+use crate::passwords_panel::PasswordsPanel;
 
 const NEWTAB_HTML: &str = include_str!("newtab.html");
 const NEWTAB_URI: &str = "about:newtab";
@@ -26,7 +31,11 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
         .expand_tabs(false)
         .build();
 
-    let (header, url_bar, back_btn, forward_btn, reload_btn, new_tab_btn, menu_btn) = build_header(&tab_view);
+    // Overlay for in-page toasts (e.g. "Save password for example.com?")
+    let toast_overlay = libadwaita::ToastOverlay::new();
+
+    let (header, url_bar, back_btn, forward_btn, reload_btn, new_tab_btn, menu_btn) =
+        build_header(&tab_view, &toast_overlay);
 
     // ── Sidebar — docked applet panel (History / Bookmarks / Notes / Downloads) ──
     let split_view = libadwaita::OverlaySplitView::builder()
@@ -36,7 +45,8 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
         .sidebar_width_fraction(0.26)
         .show_sidebar(false)
         .build();
-    split_view.set_content(Some(&tab_view));
+    toast_overlay.set_child(Some(&tab_view));
+    split_view.set_content(Some(&toast_overlay));
 
     let sidebar_title = gtk4::Label::builder()
         .css_classes(vec!["panel-title"])
@@ -68,9 +78,12 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
     sidebar_box.append(&sidebar_stack);
     split_view.set_sidebar(Some(&sidebar_box));
 
+    let find_bar = FindBar::build(&tab_view);
+
     let toolbar_view = libadwaita::ToolbarView::new();
     toolbar_view.add_top_bar(&header);
     toolbar_view.add_top_bar(&tab_bar);
+    toolbar_view.add_top_bar(&find_bar.root);
     toolbar_view.set_content(Some(&split_view));
     window.set_content(Some(&toolbar_view));
 
@@ -103,12 +116,14 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
     let history_panel = HistoryPanel::build(Rc::clone(&navigate), Rc::clone(&close_sidebar));
     let bookmarks_panel = BookmarksPanel::build(Rc::clone(&navigate), Rc::clone(&close_sidebar));
     let downloads_panel = DownloadsPanel::build();
+    let passwords_panel = PasswordsPanel::build();
     let notes_widget = crate::notes::build_widget();
 
     sidebar_stack.add_named(&history_panel.root, Some("history"));
     sidebar_stack.add_named(&bookmarks_panel.root, Some("bookmarks"));
     sidebar_stack.add_named(&notes_widget, Some("notes"));
     sidebar_stack.add_named(&downloads_panel.root, Some("downloads"));
+    sidebar_stack.add_named(&passwords_panel.root, Some("passwords"));
 
     // Wire WebKit's download signals into the Downloads applet
     engine::set_download_handler(glob_download_handler(downloads_panel.clone()));
@@ -127,7 +142,7 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
         move |_| bookmark_current_page(&tab_view, &url_bar)
     ));
 
-    open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, NEWTAB_URI, true);
+    open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, &toast_overlay, NEWTAB_URI, true);
 
     tab_view.connect_selected_page_notify(glib::clone!(
         #[weak] back_btn,
@@ -143,13 +158,13 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
     ));
 
     setup_shortcuts(
-        &window, &tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn,
-        &split_view, &sidebar_stack, &sidebar_title, &history_panel, &bookmarks_panel,
+        &window, &tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, &toast_overlay, &find_bar,
+        &split_view, &sidebar_stack, &sidebar_title, &history_panel, &bookmarks_panel, &passwords_panel,
     );
 
     setup_menu(
-        &window, &menu_btn, &tab_view, &url_bar, &new_tab_btn, &reload_btn,
-        &split_view, &sidebar_stack, &sidebar_title, &history_panel, &bookmarks_panel,
+        &window, &menu_btn, &tab_view, &url_bar, &new_tab_btn, &reload_btn, &find_bar,
+        &split_view, &sidebar_stack, &sidebar_title, &history_panel, &bookmarks_panel, &passwords_panel,
     );
 
     load_css();
@@ -164,6 +179,7 @@ fn glob_download_handler(panel: DownloadsPanel) -> impl Fn(webkit6::Download) + 
 
 fn build_header(
     tab_view: &libadwaita::TabView,
+    toast_overlay: &libadwaita::ToastOverlay,
 ) -> (
     libadwaita::HeaderBar,
     gtk4::Entry,
@@ -210,10 +226,20 @@ fn build_header(
         .css_classes(vec!["flat"])
         .build();
 
-    let brand = gtk4::Label::builder()
+    let brand = gtk4::Button::builder()
         .label("VELO")
-        .css_classes(vec!["brand-mark"])
+        .css_classes(vec!["brand-mark", "flat"])
+        .tooltip_text("Go to start page")
         .build();
+
+    brand.connect_clicked(glib::clone!(
+        #[weak] tab_view,
+        #[weak] url_bar,
+        move |_| {
+            with_webview(&tab_view, |wv| wv.load_html(NEWTAB_HTML, None::<&str>));
+            url_bar.set_text("");
+        }
+    ));
 
     let header = libadwaita::HeaderBar::new();
     header.pack_start(&brand);
@@ -251,8 +277,9 @@ fn build_header(
         #[weak] back_btn,
         #[weak] forward_btn,
         #[weak] reload_btn,
+        #[weak] toast_overlay,
         move |_| {
-            open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, NEWTAB_URI, true);
+            open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, &toast_overlay, NEWTAB_URI, true);
             url_bar.grab_focus();
         }
     ));
@@ -266,6 +293,7 @@ pub fn open_tab(
     back_btn: &gtk4::Button,
     forward_btn: &gtk4::Button,
     reload_btn: &gtk4::Button,
+    toast_overlay: &libadwaita::ToastOverlay,
     url: &str,
     select: bool,
 ) -> libadwaita::TabPage {
@@ -276,6 +304,22 @@ pub fn open_tab(
         webview.load_uri(url);
     }
 
+    add_tab_for_webview(tab_view, url_bar, back_btn, forward_btn, reload_btn, toast_overlay, webview, select)
+}
+
+/// Wires a `WebView`'s signals into a new tab page — shared by `open_tab`
+/// and the popup/new-window handling below, which builds the `WebView`
+/// itself (via `connect_create`) before it has a tab to live in.
+fn add_tab_for_webview(
+    tab_view: &libadwaita::TabView,
+    url_bar: &gtk4::Entry,
+    back_btn: &gtk4::Button,
+    forward_btn: &gtk4::Button,
+    reload_btn: &gtk4::Button,
+    toast_overlay: &libadwaita::ToastOverlay,
+    webview: WebView,
+    select: bool,
+) -> libadwaita::TabPage {
     let page = tab_view.append(&webview);
     page.set_title("New Tab");
 
@@ -304,6 +348,11 @@ pub fn open_tab(
         }
     ));
 
+    webview.connect_favicon_notify(glib::clone!(
+        #[weak] page,
+        move |wv| page.set_icon(wv.favicon().as_ref())
+    ));
+
     webview.connect_load_changed(glib::clone!(
         #[weak] tab_view,
         #[weak] url_bar,
@@ -321,7 +370,8 @@ pub fn open_tab(
                 let uri = wv.uri().unwrap_or_default().to_string();
                 let title = wv.title().unwrap_or_default().to_string();
                 if !is_newtab_uri(&uri) && !uri.is_empty() {
-                    crate::backend::record_visit(uri, title);
+                    crate::backend::record_visit(uri.clone(), title);
+                    try_autofill(wv, &uri);
                 }
             }
         }
@@ -349,6 +399,80 @@ pub fn open_tab(
         move |wv| page.set_loading(wv.is_loading())
     ));
 
+    // ── Popups & target="_blank"/window.open() — open in a new background tab ──
+    webview.connect_create(glib::clone!(
+        #[weak] tab_view,
+        #[weak] url_bar,
+        #[weak] back_btn,
+        #[weak] forward_btn,
+        #[weak] reload_btn,
+        #[weak] toast_overlay,
+        #[upgrade_or] None,
+        move |wv, _nav_action| {
+            let new_view = engine::create_related_webview(wv);
+            let new_page = add_tab_for_webview(
+                &tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, &toast_overlay, new_view.clone(), false,
+            );
+            new_view.connect_ready_to_show(glib::clone!(
+                #[weak] tab_view,
+                #[strong] new_page,
+                #[upgrade_or] (),
+                move |_| tab_view.set_selected_page(&new_page)
+            ));
+            Some(new_view.upcast::<gtk4::Widget>())
+        }
+    ));
+
+    // ── Ctrl/middle-click links and target="_blank" navigations — open in a new tab ──
+    webview.connect_decide_policy(glib::clone!(
+        #[weak] tab_view,
+        #[weak] url_bar,
+        #[weak] back_btn,
+        #[weak] forward_btn,
+        #[weak] reload_btn,
+        #[weak] toast_overlay,
+        #[upgrade_or] false,
+        move |_wv, decision, decision_type| {
+            let Some(nav_decision) = decision.downcast_ref::<NavigationPolicyDecision>() else {
+                return false;
+            };
+            let Some(action) = nav_decision.navigation_action() else {
+                return false;
+            };
+
+            let opens_new_tab = match decision_type {
+                PolicyDecisionType::NewWindowAction => true,
+                PolicyDecisionType::NavigationAction => {
+                    action.navigation_type() == NavigationType::LinkClicked
+                        && (action.mouse_button() == 2
+                            || action.modifiers() & gtk4::gdk::ModifierType::CONTROL_MASK.bits() != 0)
+                }
+                _ => false,
+            };
+
+            if !opens_new_tab {
+                return false;
+            }
+
+            let Some(uri) = action.request().and_then(|r| r.uri()) else {
+                return false;
+            };
+
+            open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, &toast_overlay, &uri, false);
+            decision.ignore();
+            true
+        }
+    ));
+
+    // ── Saved-login capture — prompts to save new/changed credentials ──
+    if let Some(ucm) = webview.user_content_manager() {
+        ucm.connect_script_message_received(Some(engine::PASSWORD_MESSAGE_HANDLER), glib::clone!(
+            #[weak] webview,
+            #[weak] toast_overlay,
+            move |_ucm, value| handle_password_message(&webview, &toast_overlay, value)
+        ));
+    }
+
     page
 }
 
@@ -359,11 +483,14 @@ fn setup_shortcuts(
     back_btn: &gtk4::Button,
     forward_btn: &gtk4::Button,
     reload_btn: &gtk4::Button,
+    toast_overlay: &libadwaita::ToastOverlay,
+    find_bar: &FindBar,
     split_view: &libadwaita::OverlaySplitView,
     sidebar_stack: &gtk4::Stack,
     sidebar_title: &gtk4::Label,
     history_panel: &HistoryPanel,
     bookmarks_panel: &BookmarksPanel,
+    passwords_panel: &PasswordsPanel,
 ) {
     use gtk4::gdk::{Key, ModifierType};
 
@@ -373,6 +500,8 @@ fn setup_shortcuts(
 
     let hp = history_panel.clone();
     let bp = bookmarks_panel.clone();
+    let pp = passwords_panel.clone();
+    let fb = find_bar.clone();
 
     key_ctl.connect_key_pressed(glib::clone!(
         #[weak] tab_view,
@@ -380,6 +509,7 @@ fn setup_shortcuts(
         #[weak] back_btn,
         #[weak] forward_btn,
         #[weak] reload_btn,
+        #[weak] toast_overlay,
         #[weak] split_view,
         #[weak] sidebar_stack,
         #[weak] sidebar_title,
@@ -404,6 +534,10 @@ fn setup_shortcuts(
                     return glib::Propagation::Stop;
                 }
                 Key::Escape => {
+                    if fb.is_open() {
+                        fb.close(&tab_view);
+                        return glib::Propagation::Stop;
+                    }
                     if split_view.shows_sidebar() {
                         split_view.set_show_sidebar(false);
                         tab_view.remove_css_class("browse-dim");
@@ -446,7 +580,7 @@ fn setup_shortcuts(
                     }
                     't' if ctrl && !shift => {
                         open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn,
-                                 NEWTAB_URI, true);
+                                 &toast_overlay, NEWTAB_URI, true);
                         url_bar.grab_focus();
                         return glib::Propagation::Stop;
                     }
@@ -477,6 +611,14 @@ fn setup_shortcuts(
                     }
                     'j' if ctrl && !shift => {
                         toggle_downloads(&split_view, &sidebar_stack, &sidebar_title, &tab_view);
+                        return glib::Propagation::Stop;
+                    }
+                    'p' if ctrl && !shift => {
+                        toggle_passwords(&split_view, &sidebar_stack, &sidebar_title, &tab_view, &pp);
+                        return glib::Propagation::Stop;
+                    }
+                    'f' if ctrl && !shift => {
+                        fb.open();
                         return glib::Propagation::Stop;
                     }
                     'd' if ctrl => {
@@ -531,11 +673,13 @@ fn setup_menu(
     url_bar: &gtk4::Entry,
     new_tab_btn: &gtk4::Button,
     reload_btn: &gtk4::Button,
+    find_bar: &FindBar,
     split_view: &libadwaita::OverlaySplitView,
     sidebar_stack: &gtk4::Stack,
     sidebar_title: &gtk4::Label,
     history_panel: &HistoryPanel,
     bookmarks_panel: &BookmarksPanel,
+    passwords_panel: &PasswordsPanel,
 ) {
     let add_action = |name: &str| {
         let action = gio::SimpleAction::new(name, None);
@@ -545,6 +689,7 @@ fn setup_menu(
 
     let hp = history_panel.clone();
     let bp = bookmarks_panel.clone();
+    let pp = passwords_panel.clone();
 
     add_action("new-tab").connect_activate(glib::clone!(
         #[weak] new_tab_btn,
@@ -591,9 +736,23 @@ fn setup_menu(
         move |_, _| toggle_downloads(&split_view, &sidebar_stack, &sidebar_title, &tab_view)
     ));
 
+    add_action("toggle-passwords").connect_activate(glib::clone!(
+        #[weak] tab_view,
+        #[weak] split_view,
+        #[weak] sidebar_stack,
+        #[weak] sidebar_title,
+        #[strong] pp,
+        move |_, _| toggle_passwords(&split_view, &sidebar_stack, &sidebar_title, &tab_view, &pp)
+    ));
+
     add_action("reload").connect_activate(glib::clone!(
         #[weak] reload_btn,
         move |_, _| reload_btn.emit_clicked()
+    ));
+
+    add_action("find-in-page").connect_activate(glib::clone!(
+        #[strong] find_bar,
+        move |_, _| find_bar.open()
     ));
 
     add_action("zoom-in").connect_activate(glib::clone!(
@@ -620,11 +779,18 @@ fn setup_menu(
         move |_, _| check_for_updates(&window)
     ));
 
+    add_action("clear-browsing-data").connect_activate(glib::clone!(
+        #[weak] window,
+        #[weak] tab_view,
+        move |_, _| confirm_clear_browsing_data(&window, &tab_view)
+    ));
+
     let menu = gio::Menu::new();
 
     let nav = gio::Menu::new();
     nav.append(Some("New Tab"), Some("win.new-tab"));
     nav.append(Some("Reload"), Some("win.reload"));
+    nav.append(Some("Find in Page"), Some("win.find-in-page"));
     menu.append_section(None, &nav);
 
     let applets = gio::Menu::new();
@@ -633,6 +799,7 @@ fn setup_menu(
     applets.append(Some("Bookmarks"), Some("win.toggle-bookmarks"));
     applets.append(Some("Notes"), Some("win.toggle-notes"));
     applets.append(Some("Downloads"), Some("win.toggle-downloads"));
+    applets.append(Some("Passwords"), Some("win.toggle-passwords"));
     menu.append_section(None, &applets);
 
     let zoom = gio::Menu::new();
@@ -640,6 +807,10 @@ fn setup_menu(
     zoom.append(Some("Zoom Out"), Some("win.zoom-out"));
     zoom.append(Some("Reset Zoom"), Some("win.zoom-reset"));
     menu.append_section(None, &zoom);
+
+    let privacy = gio::Menu::new();
+    privacy.append(Some("Clear Browsing Data…"), Some("win.clear-browsing-data"));
+    menu.append_section(None, &privacy);
 
     let updates = gio::Menu::new();
     updates.append(Some("Check for Updates…"), Some("win.check-update"));
@@ -718,6 +889,18 @@ fn toggle_downloads(
     toggle_panel(split_view, sidebar_stack, sidebar_title, tab_view, "downloads", "DOWNLOADS");
 }
 
+fn toggle_passwords(
+    split_view: &libadwaita::OverlaySplitView,
+    sidebar_stack: &gtk4::Stack,
+    sidebar_title: &gtk4::Label,
+    tab_view: &libadwaita::TabView,
+    pp: &PasswordsPanel,
+) {
+    if toggle_panel(split_view, sidebar_stack, sidebar_title, tab_view, "passwords", "PASSWORDS") {
+        pp.refresh();
+    }
+}
+
 fn bookmark_current_page(tab_view: &libadwaita::TabView, url_bar: &gtk4::Entry) {
     let url = url_bar.text().to_string();
     if url.is_empty() || url == "about:blank" { return; }
@@ -728,6 +911,118 @@ fn bookmark_current_page(tab_view: &libadwaita::TabView, url_bar: &gtk4::Entry) 
         .map(|t| t.to_string())
         .unwrap_or_else(|| url.clone());
     crate::backend::add_bookmark(url, title);
+}
+
+// ── Password manager — autofill on load, capture on submit ─────────────────────
+
+/// Looks up the most recently saved credential for `uri`'s origin and, if
+/// found, fills it into the page's login form via `window.__veloFill`.
+fn try_autofill(wv: &WebView, uri: &str) {
+    let Some(origin) = crate::passwords::origin_from_uri(uri) else { return };
+    let mut creds = crate::passwords::find_credentials_for_origin(&origin);
+    creds.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
+    let Some(cred) = creds.into_iter().next() else { return };
+
+    let username = cred.username.clone();
+    crate::passwords::get_credential(origin, username, glib::clone!(
+        #[weak] wv,
+        #[upgrade_or] (),
+        move |password| {
+            let Some(password) = password else { return };
+            let script = format!(
+                "window.__veloFill && window.__veloFill({}, {})",
+                js_string(&cred.username),
+                js_string(&password),
+            );
+            wv.evaluate_javascript(&script, None, None, gtk4::gio::Cancellable::NONE, |_| {});
+        }
+    ));
+}
+
+/// JSON-encodes a string for splicing into an injected JS snippet.
+fn js_string(s: &str) -> String {
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+#[derive(Deserialize)]
+struct LoginMessage {
+    username: String,
+    password: String,
+}
+
+/// Handles a login submission posted by `autofill.js`. If it differs from
+/// any saved credential for this origin, offers to save it via a toast.
+fn handle_password_message(webview: &WebView, toast_overlay: &libadwaita::ToastOverlay, value: &javascriptcore::Value) {
+    if !value.is_string() { return; }
+    let text = value.to_str();
+    let Ok(msg) = serde_json::from_str::<LoginMessage>(&text) else { return };
+    if msg.password.is_empty() { return; }
+
+    let Some(uri) = webview.uri() else { return };
+    let Some(origin) = crate::passwords::origin_from_uri(&uri) else { return };
+
+    let LoginMessage { username, password } = msg;
+    let username_for_toast = username.clone();
+    let password_for_check = password.clone();
+    let origin_for_toast = origin.clone();
+
+    crate::passwords::get_credential(origin, username.clone(), glib::clone!(
+        #[weak] toast_overlay,
+        #[upgrade_or] (),
+        move |existing| {
+            if existing.as_deref() == Some(password_for_check.as_str()) {
+                return;
+            }
+            show_save_password_toast(&toast_overlay, origin_for_toast, username_for_toast, password);
+        }
+    ));
+}
+
+/// Shows a toast offering to store a new or changed login for `origin`.
+fn show_save_password_toast(toast_overlay: &libadwaita::ToastOverlay, origin: String, username: String, password: String) {
+    let host = origin.split("://").nth(1).unwrap_or(origin.as_str()).to_string();
+    let toast = libadwaita::Toast::builder()
+        .title(format!("Save password for {host}?"))
+        .button_label("Save")
+        .timeout(8)
+        .build();
+
+    toast.connect_button_clicked(move |_| {
+        crate::passwords::save_credential(origin.clone(), username.clone(), password.clone(), |_| {});
+    });
+
+    toast_overlay.add_toast(toast);
+}
+
+/// Asks for confirmation, then wipes cookies, cache, and site storage —
+/// signing the user out of every site — and reloads the active tab.
+fn confirm_clear_browsing_data(window: &libadwaita::ApplicationWindow, tab_view: &libadwaita::TabView) {
+    let dialog = gtk4::AlertDialog::builder()
+        .modal(true)
+        .message("Clear browsing data?")
+        .detail(
+            "Cookies, cache, and site storage (including saved logins like Google) \
+             will be deleted and you'll be signed out of every site. Saved passwords \
+             in the Velo Passwords applet are not affected."
+        )
+        .buttons(["Cancel", "Clear Data"])
+        .cancel_button(0)
+        .default_button(0)
+        .build();
+
+    dialog.choose(Some(window), gtk4::gio::Cancellable::NONE, glib::clone!(
+        #[weak] tab_view,
+        #[upgrade_or] (),
+        move |response| {
+            if matches!(response, Ok(1)) {
+                engine::clear_browsing_data(glib::clone!(
+                    #[weak] tab_view,
+                    #[upgrade_or] (),
+                    move || with_webview(&tab_view, |wv| wv.reload())
+                ));
+            }
+        }
+    ));
 }
 
 // ── Self-update ────────────────────────────────────────────────────────────────
