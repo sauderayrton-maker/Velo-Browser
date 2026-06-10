@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Velo
+GenericName=Web Browser
+Comment=Fast, precise browser
+Exec=velo %u
+Icon=velo
+Terminal=false
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;application/xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
+StartupWMClass=velo
+Keywords=browser;web;internet;

@@ -1,13 +1,12 @@
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, post},
+    routing::{delete, get},
     Json, Router,
 };
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use tower_http::cors::CorsLayer;
 
 #[derive(Clone)]
 struct AppState {
@@ -62,13 +61,18 @@ async fn main() {
         .route("/api/history", get(get_history).post(add_history))
         .route("/api/bookmarks", get(get_bookmarks).post(add_bookmark))
         .route("/api/bookmarks/:id", delete(delete_bookmark))
-        .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:7777")
+    // Defaults to loopback-only: history and bookmarks are sensitive, and
+    // without CORS restrictions any reachable host (or page running in a
+    // WebView tab) could read or modify them. Docker overrides this to
+    // 0.0.0.0 since the container's loopback isn't reachable via the
+    // published port mapping.
+    let bind_addr = std::env::var("VELO_BACKEND_BIND").unwrap_or_else(|_| "127.0.0.1:7777".into());
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .expect("bind");
-    println!("velo-backend listening on :7777");
+    println!("velo-backend listening on {bind_addr}");
     axum::serve(listener, app).await.expect("serve");
 }
 
