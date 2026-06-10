@@ -1235,7 +1235,7 @@ pub fn normalize_url(input: &str) -> String {
     if s.contains('.') && !s.contains(' ') && !s.is_empty() {
         return format!("https://{s}");
     }
-    format!("https://www.google.com/search?q={}", s.replace(' ', "+"))
+    format!("https://duckduckgo.com/?q={}", s.replace(' ', "+"))
 }
 
 fn load_css() {

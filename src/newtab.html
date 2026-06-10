@@ -236,7 +236,7 @@ body {
                     (/^[^\s]+\.[^\s.]{2,}(\/|$)/.test(v) && !/\s/.test(v));
         location.href = isUrl
             ? (/^https?:\/\//i.test(v) ? v : 'https://' + v)
-            : 'https://www.google.com/search?q=' + encodeURIComponent(v);
+            : 'https://duckduckgo.com/?q=' + encodeURIComponent(v);
     });
 }());
 </script>

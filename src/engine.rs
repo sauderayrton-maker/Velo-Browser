@@ -5,8 +5,9 @@ use std::rc::Rc;
 // Import WebViewExt directly — avoids ambiguity with gtk4::WidgetExt::settings().
 use webkit6::prelude::WebViewExt;
 use webkit6::{
-    Download, HardwareAccelerationPolicy, NetworkSession, UserContentInjectedFrames,
-    UserContentManager, UserScript, UserScriptInjectionTime, WebContext, WebsiteDataTypes, WebView,
+    CookiePersistentStorage, Download, HardwareAccelerationPolicy, NetworkSession,
+    UserContentInjectedFrames, UserContentManager, UserScript, UserScriptInjectionTime,
+    WebContext, WebsiteDataTypes, WebView,
 };
 
 /// Name of the script message handler that the autofill script posts saved
@@ -60,6 +61,15 @@ fn create_persistent_session() -> NetworkSession {
     let session = NetworkSession::new(data_dir.to_str(), cache_dir.to_str());
     if let Some(data_manager) = session.website_data_manager() {
         data_manager.set_favicons_enabled(true);
+    }
+    // The cookie jar is in-memory by default even with a data directory set —
+    // back it with a SQLite file so login sessions survive restarts.
+    if let Some(cookie_manager) = session.cookie_manager() {
+        let cookie_path = data_dir.join("cookies.sqlite");
+        cookie_manager.set_persistent_storage(
+            &cookie_path.to_string_lossy(),
+            CookiePersistentStorage::Sqlite,
+        );
     }
     session
 }
