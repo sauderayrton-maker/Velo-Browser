@@ -25,7 +25,7 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
         .expand_tabs(false)
         .build();
 
-    let (header, url_bar, back_btn, forward_btn, reload_btn) = build_header(&tab_view);
+    let (header, url_bar, back_btn, forward_btn, reload_btn, new_tab_btn, menu_btn) = build_header(&tab_view);
 
     let toolbar_view = libadwaita::ToolbarView::new();
     toolbar_view.add_top_bar(&header);
@@ -47,25 +47,32 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
     let bookmarks_panel = BookmarksPanel::build(&window, Rc::clone(&navigate));
 
     // Dim the tab view when a panel is open — "environment reacts"
-    // Connect to each panel's window hide signal to remove dim when last panel closes
+    // Connect to each panel's window hide signal to remove dim when last panel closes,
+    // and hand keyboard focus back to the main window. Without this, some compositors
+    // (e.g. Hyprland) leave focus on the now-hidden panel surface, so shortcuts and
+    // header widgets in the main window stop responding until it's clicked manually.
     let hp_win = history_panel.window.clone();
     let bp_win = bookmarks_panel.window.clone();
     history_panel.window.connect_hide(glib::clone!(
+        #[weak] window,
         #[weak] tab_view,
         #[weak] bp_win,
         move |_| {
             if !bp_win.is_visible() {
                 tab_view.remove_css_class("browse-dim");
             }
+            window.present();
         }
     ));
     bookmarks_panel.window.connect_hide(glib::clone!(
+        #[weak] window,
         #[weak] tab_view,
         #[weak] hp_win,
         move |_| {
             if !hp_win.is_visible() {
                 tab_view.remove_css_class("browse-dim");
             }
+            window.present();
         }
     ));
 
@@ -80,22 +87,16 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
     star_btn.connect_clicked(glib::clone!(
         #[weak] url_bar,
         #[weak] tab_view,
-        move |_| {
-            let url = url_bar.text().to_string();
-            if url.is_empty() || url == "about:blank" { return; }
-            let title = tab_view
-                .selected_page()
-                .and_then(|p| page_webview(&p))
-                .and_then(|wv| wv.title())
-                .map(|t| t.to_string())
-                .unwrap_or_else(|| url.clone());
-            crate::backend::add_bookmark(url, title);
-        }
+        move |_| bookmark_current_page(&tab_view, &url_bar)
     ));
 
     open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, NEWTAB_URI, true);
 
     let notes_win = crate::notes::build(&window);
+    notes_win.connect_hide(glib::clone!(
+        #[weak] window,
+        move |_| window.present()
+    ));
 
     tab_view.connect_selected_page_notify(glib::clone!(
         #[weak] back_btn,
@@ -115,6 +116,11 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
         &notes_win, &history_panel, &bookmarks_panel,
     );
 
+    setup_menu(
+        &window, &menu_btn, &tab_view, &url_bar, &new_tab_btn, &reload_btn,
+        &notes_win, &history_panel, &bookmarks_panel,
+    );
+
     load_css();
     window
 }
@@ -127,6 +133,8 @@ fn build_header(
     gtk4::Button,
     gtk4::Button,
     gtk4::Button,
+    gtk4::Button,
+    gtk4::MenuButton,
 ) {
     let back_btn = nav_button("go-previous-symbolic", "Back");
     let forward_btn = nav_button("go-next-symbolic", "Forward");
@@ -165,7 +173,13 @@ fn build_header(
         .css_classes(vec!["flat"])
         .build();
 
+    let brand = gtk4::Label::builder()
+        .label("VELO")
+        .css_classes(vec!["brand-mark"])
+        .build();
+
     let header = libadwaita::HeaderBar::new();
+    header.pack_start(&brand);
     header.pack_start(&nav_box);
     header.set_title_widget(Some(&url_bar));
     header.pack_end(&menu_btn);
@@ -206,7 +220,7 @@ fn build_header(
         }
     ));
 
-    (header, url_bar, back_btn, forward_btn, reload_btn)
+    (header, url_bar, back_btn, forward_btn, reload_btn, new_tab_btn, menu_btn)
 }
 
 pub fn open_tab(
@@ -408,38 +422,15 @@ fn setup_shortcuts(
                         return glib::Propagation::Stop;
                     }
                     'h' if ctrl && !shift => {
-                        let opening = !hp.is_open();
-                        bp.hide();
-                        if opening {
-                            hp.show();
-                            tab_view.add_css_class("browse-dim");
-                        } else {
-                            hp.hide();
-                        }
+                        toggle_history(&tab_view, &hp, &bp);
                         return glib::Propagation::Stop;
                     }
                     'b' if ctrl && !shift => {
-                        let opening = !bp.is_open();
-                        hp.hide();
-                        if opening {
-                            bp.show();
-                            tab_view.add_css_class("browse-dim");
-                        } else {
-                            bp.hide();
-                        }
+                        toggle_bookmarks(&tab_view, &hp, &bp);
                         return glib::Propagation::Stop;
                     }
                     'd' if ctrl => {
-                        let url = url_bar.text().to_string();
-                        if !url.is_empty() && url != "about:blank" {
-                            let title = tab_view
-                                .selected_page()
-                                .and_then(|p| page_webview(&p))
-                                .and_then(|wv| wv.title())
-                                .map(|t| t.to_string())
-                                .unwrap_or_else(|| url.clone());
-                            crate::backend::add_bookmark(url, title);
-                        }
+                        bookmark_current_page(&tab_view, &url_bar);
                         return glib::Propagation::Stop;
                     }
                     '=' | '+' if ctrl => {
@@ -479,6 +470,141 @@ fn setup_shortcuts(
             glib::Propagation::Proceed
         }
     ));
+}
+
+// ── Menu ──────────────────────────────────────────────────────────────────────
+
+fn setup_menu(
+    window: &libadwaita::ApplicationWindow,
+    menu_btn: &gtk4::MenuButton,
+    tab_view: &libadwaita::TabView,
+    url_bar: &gtk4::Entry,
+    new_tab_btn: &gtk4::Button,
+    reload_btn: &gtk4::Button,
+    notes_win: &libadwaita::Window,
+    history_panel: &HistoryPanel,
+    bookmarks_panel: &BookmarksPanel,
+) {
+    let add_action = |name: &str| {
+        let action = gio::SimpleAction::new(name, None);
+        window.add_action(&action);
+        action
+    };
+
+    let hp = history_panel.clone();
+    let bp = bookmarks_panel.clone();
+
+    add_action("new-tab").connect_activate(glib::clone!(
+        #[weak] new_tab_btn,
+        move |_, _| new_tab_btn.emit_clicked()
+    ));
+
+    add_action("bookmark-page").connect_activate(glib::clone!(
+        #[weak] tab_view,
+        #[weak] url_bar,
+        move |_, _| bookmark_current_page(&tab_view, &url_bar)
+    ));
+
+    add_action("toggle-history").connect_activate(glib::clone!(
+        #[weak] tab_view,
+        #[strong] hp,
+        #[strong] bp,
+        move |_, _| toggle_history(&tab_view, &hp, &bp)
+    ));
+
+    add_action("toggle-bookmarks").connect_activate(glib::clone!(
+        #[weak] tab_view,
+        #[strong] hp,
+        #[strong] bp,
+        move |_, _| toggle_bookmarks(&tab_view, &hp, &bp)
+    ));
+
+    add_action("toggle-notes").connect_activate(glib::clone!(
+        #[weak] notes_win,
+        move |_, _| crate::notes::toggle(&notes_win)
+    ));
+
+    add_action("reload").connect_activate(glib::clone!(
+        #[weak] reload_btn,
+        move |_, _| reload_btn.emit_clicked()
+    ));
+
+    add_action("zoom-in").connect_activate(glib::clone!(
+        #[weak] tab_view,
+        move |_, _| with_webview(&tab_view, |wv| {
+            wv.set_zoom_level((wv.zoom_level() * 1.1).min(5.0));
+        })
+    ));
+
+    add_action("zoom-out").connect_activate(glib::clone!(
+        #[weak] tab_view,
+        move |_, _| with_webview(&tab_view, |wv| {
+            wv.set_zoom_level((wv.zoom_level() / 1.1).max(0.25));
+        })
+    ));
+
+    add_action("zoom-reset").connect_activate(glib::clone!(
+        #[weak] tab_view,
+        move |_, _| with_webview(&tab_view, |wv| wv.set_zoom_level(1.0))
+    ));
+
+    let menu = gio::Menu::new();
+
+    let nav = gio::Menu::new();
+    nav.append(Some("New Tab"), Some("win.new-tab"));
+    nav.append(Some("Reload"), Some("win.reload"));
+    menu.append_section(None, &nav);
+
+    let applets = gio::Menu::new();
+    applets.append(Some("Bookmark This Page"), Some("win.bookmark-page"));
+    applets.append(Some("History"), Some("win.toggle-history"));
+    applets.append(Some("Bookmarks"), Some("win.toggle-bookmarks"));
+    applets.append(Some("Notes"), Some("win.toggle-notes"));
+    menu.append_section(None, &applets);
+
+    let zoom = gio::Menu::new();
+    zoom.append(Some("Zoom In"), Some("win.zoom-in"));
+    zoom.append(Some("Zoom Out"), Some("win.zoom-out"));
+    zoom.append(Some("Reset Zoom"), Some("win.zoom-reset"));
+    menu.append_section(None, &zoom);
+
+    menu_btn.set_menu_model(Some(&menu));
+}
+
+// ── Panel & action helpers ──────────────────────────────────────────────────────
+
+fn toggle_history(tab_view: &libadwaita::TabView, hp: &HistoryPanel, bp: &BookmarksPanel) {
+    let opening = !hp.is_open();
+    bp.hide();
+    if opening {
+        hp.show();
+        tab_view.add_css_class("browse-dim");
+    } else {
+        hp.hide();
+    }
+}
+
+fn toggle_bookmarks(tab_view: &libadwaita::TabView, hp: &HistoryPanel, bp: &BookmarksPanel) {
+    let opening = !bp.is_open();
+    hp.hide();
+    if opening {
+        bp.show();
+        tab_view.add_css_class("browse-dim");
+    } else {
+        bp.hide();
+    }
+}
+
+fn bookmark_current_page(tab_view: &libadwaita::TabView, url_bar: &gtk4::Entry) {
+    let url = url_bar.text().to_string();
+    if url.is_empty() || url == "about:blank" { return; }
+    let title = tab_view
+        .selected_page()
+        .and_then(|p| page_webview(&p))
+        .and_then(|wv| wv.title())
+        .map(|t| t.to_string())
+        .unwrap_or_else(|| url.clone());
+    crate::backend::add_bookmark(url, title);
 }
 
 // ── Tab helpers ───────────────────────────────────────────────────────────────

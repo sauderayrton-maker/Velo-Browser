@@ -78,7 +78,13 @@ impl HistoryPanel {
         toolbar.set_content(Some(&content));
         window.set_content(Some(&toolbar));
 
+        // Hide rather than destroy on the system close button, so the panel
+        // can be reopened, and Escape closes regardless of which child (e.g.
+        // the search entry) currently has focus.
+        window.set_hide_on_close(true);
+
         let key_ctl = gtk4::EventControllerKey::new();
+        key_ctl.set_propagation_phase(gtk4::PropagationPhase::Capture);
         window.add_controller(key_ctl.clone());
         key_ctl.connect_key_pressed(clone!(
             #[weak] window,
@@ -119,9 +125,6 @@ impl HistoryPanel {
                 list.remove(&child);
             }
             for entry in entries {
-                let nav = Rc::clone(&navigate);
-                let win = window.clone();
-                let url = entry.url.clone();
                 let row = make_row(
                     &entry.url,
                     &entry.title,
@@ -132,10 +135,28 @@ impl HistoryPanel {
                     entry.title.to_lowercase(),
                     entry.url.to_lowercase()
                 ));
+
+                let url = entry.url.clone();
+
+                // Keyboard activation (Enter/Space on a focused row)
+                let nav = Rc::clone(&navigate);
+                let win = window.clone();
+                let u = url.clone();
                 row.connect_activate(move |_| {
+                    nav(u.clone());
+                    win.set_visible(false);
+                });
+
+                // Mouse click — ListBoxRow's "activate" signal doesn't fire on click
+                let nav = Rc::clone(&navigate);
+                let win = window.clone();
+                let click = gtk4::GestureClick::new();
+                click.connect_released(move |_, _, _, _| {
                     nav(url.clone());
                     win.set_visible(false);
                 });
+                row.add_controller(click);
+
                 list.append(&row);
             }
         });

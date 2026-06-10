@@ -45,6 +45,15 @@ entry.url-bar:focus {
         inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
+/* ── Brand mark ──────────────────────────────────────────────────────────── */
+.brand-mark {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 4px;
+    color: rgba(138, 180, 212, 0.40);
+    padding: 0 12px 0 6px;
+}
+
 /* ── Nav buttons ─────────────────────────────────────────────────────────── */
 .linked > button { padding: 5px 10px; }
 

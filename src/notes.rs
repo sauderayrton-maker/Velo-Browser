@@ -45,8 +45,13 @@ pub fn build(parent: &libadwaita::ApplicationWindow) -> libadwaita::Window {
         let _ = std::fs::write(notes_path(), b.text(&start, &end, false).as_str());
     });
 
+    // Hide rather than destroy on the system close button, so notes can be
+    // reopened with their scroll position preserved.
+    win.set_hide_on_close(true);
+
     // Escape hides without destroying (preserves scroll position)
     let key_ctl = gtk4::EventControllerKey::new();
+    key_ctl.set_propagation_phase(gtk4::PropagationPhase::Capture);
     win.add_controller(key_ctl.clone());
     key_ctl.connect_key_pressed(glib::clone!(
         #[weak] win,

@@ -52,7 +52,12 @@ impl BookmarksPanel {
         toolbar.set_content(Some(&scrolled));
         window.set_content(Some(&toolbar));
 
+        // Hide rather than destroy on the system close button, so the panel
+        // can be reopened, and ensure Escape always reaches this handler.
+        window.set_hide_on_close(true);
+
         let key_ctl = gtk4::EventControllerKey::new();
+        key_ctl.set_propagation_phase(gtk4::PropagationPhase::Capture);
         window.add_controller(key_ctl.clone());
         key_ctl.connect_key_pressed(clone!(
             #[weak] window,
@@ -93,21 +98,37 @@ impl BookmarksPanel {
                 list.remove(&child);
             }
             for bm in bookmarks {
+                let (row, body) = make_row(&bm.url, &bm.title, bm.id, &list);
+                let url = bm.url.clone();
+
+                // Keyboard activation (Enter/Space on a focused row)
                 let nav = Rc::clone(&navigate);
                 let win = window.clone();
-                let url_nav = bm.url.clone();
-                let row = make_row(&bm.url, &bm.title, bm.id, &list);
+                let u = url.clone();
                 row.connect_activate(move |_| {
-                    nav(url_nav.clone());
+                    nav(u.clone());
                     win.set_visible(false);
                 });
+
+                // Mouse click on the row body — ListBoxRow's "activate" signal
+                // doesn't fire on click. Attached to `body` (not the whole row)
+                // so it doesn't fight with the delete button.
+                let nav = Rc::clone(&navigate);
+                let win = window.clone();
+                let click = gtk4::GestureClick::new();
+                click.connect_released(move |_, _, _, _| {
+                    nav(url.clone());
+                    win.set_visible(false);
+                });
+                body.add_controller(click);
+
                 list.append(&row);
             }
         });
     }
 }
 
-fn make_row(url: &str, title: &str, id: Option<i64>, list: &gtk4::ListBox) -> gtk4::ListBoxRow {
+fn make_row(url: &str, title: &str, id: Option<i64>, list: &gtk4::ListBox) -> (gtk4::ListBoxRow, gtk4::Box) {
     let row = gtk4::ListBoxRow::builder()
         .css_classes(vec!["panel-row"])
         .activatable(true)
@@ -167,5 +188,5 @@ fn make_row(url: &str, title: &str, id: Option<i64>, list: &gtk4::ListBox) -> gt
     hbox.append(&body);
     hbox.append(&del_btn);
     row.set_child(Some(&hbox));
-    row
+    (row, body)
 }
