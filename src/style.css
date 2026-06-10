@@ -114,15 +114,21 @@ textview.notes-view > text selection {
     color: #ffffff;
 }
 
-/* ── Panel windows (history, bookmarks) ──────────────────────────────────── */
-window.panel-window {
+/* ── Sidebar — docked applet panel (history, bookmarks, notes, downloads) ── */
+.velo-sidebar {
     background-color: #0a0b11;
+    border-left: 1px solid rgba(195, 215, 240, 0.07);
+    box-shadow: -1px 0 0 rgba(0, 0, 0, 0.3);
 }
 
-window.panel-window headerbar.panel-bar {
+.sidebar-header {
+    min-height: 40px;
+    padding: 0 6px 0 16px;
     background: rgba(8, 9, 15, 0.94);
     border-bottom: 1px solid rgba(195, 215, 240, 0.07);
-    box-shadow: none;
+}
+.sidebar-header > button {
+    margin: 5px 0;
 }
 
 .panel-title {

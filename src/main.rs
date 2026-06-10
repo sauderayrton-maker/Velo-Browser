@@ -3,6 +3,7 @@ use std::time::Duration;
 
 mod backend;
 mod bookmarks;
+mod downloads;
 mod engine;
 mod history;
 mod notes;

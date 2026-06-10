@@ -1,19 +1,9 @@
 use gtk4::prelude::*;
-use libadwaita::prelude::*;
 
-pub fn build(parent: &libadwaita::ApplicationWindow) -> libadwaita::Window {
-    let win = libadwaita::Window::builder()
-        .title("Notes")
-        .default_width(360)
-        .default_height(520)
-        .transient_for(parent)
-        .build();
-
-    let header = libadwaita::HeaderBar::builder()
-        .show_start_title_buttons(false)
-        .show_end_title_buttons(true)
-        .build();
-
+/// Builds the Notes sidebar page: a plain-text scratchpad that auto-saves on
+/// every keystroke. Returned as a `Widget` so it can be hosted in the main
+/// window's sidebar `Stack` alongside the other applets.
+pub fn build_widget() -> gtk4::Widget {
     let text_view = gtk4::TextView::builder()
         .wrap_mode(gtk4::WrapMode::WordChar)
         .left_margin(22)
@@ -34,46 +24,13 @@ pub fn build(parent: &libadwaita::ApplicationWindow) -> libadwaita::Window {
         .vexpand(true)
         .build();
 
-    let toolbar = libadwaita::ToolbarView::new();
-    toolbar.add_top_bar(&header);
-    toolbar.set_content(Some(&scrolled));
-    win.set_content(Some(&toolbar));
-
     // Auto-save every keystroke
     buf.connect_changed(|b| {
         let (start, end) = (b.start_iter(), b.end_iter());
         let _ = std::fs::write(notes_path(), b.text(&start, &end, false).as_str());
     });
 
-    // Hide rather than destroy on the system close button, so notes can be
-    // reopened with their scroll position preserved.
-    win.set_hide_on_close(true);
-
-    // Escape hides without destroying (preserves scroll position)
-    let key_ctl = gtk4::EventControllerKey::new();
-    key_ctl.set_propagation_phase(gtk4::PropagationPhase::Capture);
-    win.add_controller(key_ctl.clone());
-    key_ctl.connect_key_pressed(glib::clone!(
-        #[weak] win,
-        #[upgrade_or] glib::Propagation::Proceed,
-        move |_, key, _, _| {
-            if key == gtk4::gdk::Key::Escape {
-                win.set_visible(false);
-                return glib::Propagation::Stop;
-            }
-            glib::Propagation::Proceed
-        }
-    ));
-
-    win
-}
-
-pub fn toggle(win: &libadwaita::Window) {
-    if win.is_visible() {
-        win.set_visible(false);
-    } else {
-        win.present();
-    }
+    scrolled.upcast()
 }
 
 fn notes_path() -> std::path::PathBuf {

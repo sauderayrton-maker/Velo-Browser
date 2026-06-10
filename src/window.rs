@@ -7,6 +7,7 @@ use webkit6::{LoadEvent, WebView};
 use crate::engine;
 use crate::history::HistoryPanel;
 use crate::bookmarks::BookmarksPanel;
+use crate::downloads::DownloadsPanel;
 
 const NEWTAB_HTML: &str = include_str!("newtab.html");
 const NEWTAB_URI: &str = "about:newtab";
@@ -27,13 +28,69 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
 
     let (header, url_bar, back_btn, forward_btn, reload_btn, new_tab_btn, menu_btn) = build_header(&tab_view);
 
+    // ── Sidebar — docked applet panel (History / Bookmarks / Notes / Downloads) ──
+    let split_view = libadwaita::OverlaySplitView::builder()
+        .sidebar_position(gtk4::PackType::End)
+        .min_sidebar_width(320.0)
+        .max_sidebar_width(400.0)
+        .sidebar_width_fraction(0.26)
+        .show_sidebar(false)
+        .build();
+    split_view.set_content(Some(&tab_view));
+
+    let sidebar_title = gtk4::Label::builder()
+        .css_classes(vec!["panel-title"])
+        .halign(gtk4::Align::Start)
+        .hexpand(true)
+        .build();
+
+    let sidebar_close = gtk4::Button::builder()
+        .icon_name("window-close-symbolic")
+        .tooltip_text("Close (Esc)")
+        .css_classes(vec!["flat"])
+        .valign(gtk4::Align::Center)
+        .build();
+
+    let sidebar_header = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Horizontal)
+        .css_classes(vec!["sidebar-header"])
+        .build();
+    sidebar_header.append(&sidebar_title);
+    sidebar_header.append(&sidebar_close);
+
+    let sidebar_stack = gtk4::Stack::new();
+
+    let sidebar_box = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Vertical)
+        .css_classes(vec!["velo-sidebar"])
+        .build();
+    sidebar_box.append(&sidebar_header);
+    sidebar_box.append(&sidebar_stack);
+    split_view.set_sidebar(Some(&sidebar_box));
+
     let toolbar_view = libadwaita::ToolbarView::new();
     toolbar_view.add_top_bar(&header);
     toolbar_view.add_top_bar(&tab_bar);
-    toolbar_view.set_content(Some(&tab_view));
+    toolbar_view.set_content(Some(&split_view));
     window.set_content(Some(&toolbar_view));
 
-    // Shared navigate callback for both panels
+    // Closes the sidebar and lifts the "environment reacts" dim from the tab view.
+    let close_sidebar: Rc<dyn Fn()> = Rc::new(glib::clone!(
+        #[weak] split_view,
+        #[weak] tab_view,
+        #[upgrade_or] (),
+        move || {
+            split_view.set_show_sidebar(false);
+            tab_view.remove_css_class("browse-dim");
+        }
+    ));
+
+    sidebar_close.connect_clicked(glib::clone!(
+        #[strong] close_sidebar,
+        move |_| close_sidebar()
+    ));
+
+    // Shared navigate callback for panels that link out to pages
     let navigate: Rc<dyn Fn(String)> = Rc::new(glib::clone!(
         #[weak] tab_view,
         #[upgrade_or] (),
@@ -43,38 +100,18 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
         }
     ));
 
-    let history_panel = HistoryPanel::build(&window, Rc::clone(&navigate));
-    let bookmarks_panel = BookmarksPanel::build(&window, Rc::clone(&navigate));
+    let history_panel = HistoryPanel::build(Rc::clone(&navigate), Rc::clone(&close_sidebar));
+    let bookmarks_panel = BookmarksPanel::build(Rc::clone(&navigate), Rc::clone(&close_sidebar));
+    let downloads_panel = DownloadsPanel::build();
+    let notes_widget = crate::notes::build_widget();
 
-    // Dim the tab view when a panel is open — "environment reacts"
-    // Connect to each panel's window hide signal to remove dim when last panel closes,
-    // and hand keyboard focus back to the main window. Without this, some compositors
-    // (e.g. Hyprland) leave focus on the now-hidden panel surface, so shortcuts and
-    // header widgets in the main window stop responding until it's clicked manually.
-    let hp_win = history_panel.window.clone();
-    let bp_win = bookmarks_panel.window.clone();
-    history_panel.window.connect_hide(glib::clone!(
-        #[weak] window,
-        #[weak] tab_view,
-        #[weak] bp_win,
-        move |_| {
-            if !bp_win.is_visible() {
-                tab_view.remove_css_class("browse-dim");
-            }
-            window.present();
-        }
-    ));
-    bookmarks_panel.window.connect_hide(glib::clone!(
-        #[weak] window,
-        #[weak] tab_view,
-        #[weak] hp_win,
-        move |_| {
-            if !hp_win.is_visible() {
-                tab_view.remove_css_class("browse-dim");
-            }
-            window.present();
-        }
-    ));
+    sidebar_stack.add_named(&history_panel.root, Some("history"));
+    sidebar_stack.add_named(&bookmarks_panel.root, Some("bookmarks"));
+    sidebar_stack.add_named(&notes_widget, Some("notes"));
+    sidebar_stack.add_named(&downloads_panel.root, Some("downloads"));
+
+    // Wire WebKit's download signals into the Downloads applet
+    engine::set_download_handler(glob_download_handler(downloads_panel.clone()));
 
     // Bookmark star button
     let star_btn = gtk4::Button::builder()
@@ -92,12 +129,6 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
 
     open_tab(&tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn, NEWTAB_URI, true);
 
-    let notes_win = crate::notes::build(&window);
-    notes_win.connect_hide(glib::clone!(
-        #[weak] window,
-        move |_| window.present()
-    ));
-
     tab_view.connect_selected_page_notify(glib::clone!(
         #[weak] back_btn,
         #[weak] forward_btn,
@@ -113,16 +144,22 @@ pub fn build_browser_window(app: &libadwaita::Application) -> libadwaita::Applic
 
     setup_shortcuts(
         &window, &tab_view, &url_bar, &back_btn, &forward_btn, &reload_btn,
-        &notes_win, &history_panel, &bookmarks_panel,
+        &split_view, &sidebar_stack, &sidebar_title, &history_panel, &bookmarks_panel,
     );
 
     setup_menu(
         &window, &menu_btn, &tab_view, &url_bar, &new_tab_btn, &reload_btn,
-        &notes_win, &history_panel, &bookmarks_panel,
+        &split_view, &sidebar_stack, &sidebar_title, &history_panel, &bookmarks_panel,
     );
 
     load_css();
     window
+}
+
+/// Builds the closure registered with the engine's download handler — kept
+/// separate so its type stays a plain `impl Fn(webkit6::Download)`.
+fn glob_download_handler(panel: DownloadsPanel) -> impl Fn(webkit6::Download) + 'static {
+    move |download| panel.add_download(&download)
 }
 
 fn build_header(
@@ -322,7 +359,9 @@ fn setup_shortcuts(
     back_btn: &gtk4::Button,
     forward_btn: &gtk4::Button,
     reload_btn: &gtk4::Button,
-    notes_win: &libadwaita::Window,
+    split_view: &libadwaita::OverlaySplitView,
+    sidebar_stack: &gtk4::Stack,
+    sidebar_title: &gtk4::Label,
     history_panel: &HistoryPanel,
     bookmarks_panel: &BookmarksPanel,
 ) {
@@ -341,7 +380,9 @@ fn setup_shortcuts(
         #[weak] back_btn,
         #[weak] forward_btn,
         #[weak] reload_btn,
-        #[weak] notes_win,
+        #[weak] split_view,
+        #[weak] sidebar_stack,
+        #[weak] sidebar_title,
         #[upgrade_or] glib::Propagation::Proceed,
         move |_, keyval, _keycode, mods| {
             let ctrl  = mods.contains(ModifierType::CONTROL_MASK);
@@ -363,6 +404,11 @@ fn setup_shortcuts(
                     return glib::Propagation::Stop;
                 }
                 Key::Escape => {
+                    if split_view.shows_sidebar() {
+                        split_view.set_show_sidebar(false);
+                        tab_view.remove_css_class("browse-dim");
+                        return glib::Propagation::Stop;
+                    }
                     with_webview(&tab_view, |wv| {
                         if wv.is_loading() { wv.stop_loading(); }
                     });
@@ -395,7 +441,7 @@ fn setup_shortcuts(
                 let ch = c.to_lowercase().next().unwrap_or(c);
                 match ch {
                     'n' if ctrl && !shift => {
-                        crate::notes::toggle(&notes_win);
+                        toggle_notes(&split_view, &sidebar_stack, &sidebar_title, &tab_view);
                         return glib::Propagation::Stop;
                     }
                     't' if ctrl && !shift => {
@@ -422,11 +468,15 @@ fn setup_shortcuts(
                         return glib::Propagation::Stop;
                     }
                     'h' if ctrl && !shift => {
-                        toggle_history(&tab_view, &hp, &bp);
+                        toggle_history(&split_view, &sidebar_stack, &sidebar_title, &tab_view, &hp);
                         return glib::Propagation::Stop;
                     }
                     'b' if ctrl && !shift => {
-                        toggle_bookmarks(&tab_view, &hp, &bp);
+                        toggle_bookmarks(&split_view, &sidebar_stack, &sidebar_title, &tab_view, &bp);
+                        return glib::Propagation::Stop;
+                    }
+                    'j' if ctrl && !shift => {
+                        toggle_downloads(&split_view, &sidebar_stack, &sidebar_title, &tab_view);
                         return glib::Propagation::Stop;
                     }
                     'd' if ctrl => {
@@ -481,7 +531,9 @@ fn setup_menu(
     url_bar: &gtk4::Entry,
     new_tab_btn: &gtk4::Button,
     reload_btn: &gtk4::Button,
-    notes_win: &libadwaita::Window,
+    split_view: &libadwaita::OverlaySplitView,
+    sidebar_stack: &gtk4::Stack,
+    sidebar_title: &gtk4::Label,
     history_panel: &HistoryPanel,
     bookmarks_panel: &BookmarksPanel,
 ) {
@@ -507,21 +559,36 @@ fn setup_menu(
 
     add_action("toggle-history").connect_activate(glib::clone!(
         #[weak] tab_view,
+        #[weak] split_view,
+        #[weak] sidebar_stack,
+        #[weak] sidebar_title,
         #[strong] hp,
-        #[strong] bp,
-        move |_, _| toggle_history(&tab_view, &hp, &bp)
+        move |_, _| toggle_history(&split_view, &sidebar_stack, &sidebar_title, &tab_view, &hp)
     ));
 
     add_action("toggle-bookmarks").connect_activate(glib::clone!(
         #[weak] tab_view,
-        #[strong] hp,
+        #[weak] split_view,
+        #[weak] sidebar_stack,
+        #[weak] sidebar_title,
         #[strong] bp,
-        move |_, _| toggle_bookmarks(&tab_view, &hp, &bp)
+        move |_, _| toggle_bookmarks(&split_view, &sidebar_stack, &sidebar_title, &tab_view, &bp)
     ));
 
     add_action("toggle-notes").connect_activate(glib::clone!(
-        #[weak] notes_win,
-        move |_, _| crate::notes::toggle(&notes_win)
+        #[weak] tab_view,
+        #[weak] split_view,
+        #[weak] sidebar_stack,
+        #[weak] sidebar_title,
+        move |_, _| toggle_notes(&split_view, &sidebar_stack, &sidebar_title, &tab_view)
+    ));
+
+    add_action("toggle-downloads").connect_activate(glib::clone!(
+        #[weak] tab_view,
+        #[weak] split_view,
+        #[weak] sidebar_stack,
+        #[weak] sidebar_title,
+        move |_, _| toggle_downloads(&split_view, &sidebar_stack, &sidebar_title, &tab_view)
     ));
 
     add_action("reload").connect_activate(glib::clone!(
@@ -560,6 +627,7 @@ fn setup_menu(
     applets.append(Some("History"), Some("win.toggle-history"));
     applets.append(Some("Bookmarks"), Some("win.toggle-bookmarks"));
     applets.append(Some("Notes"), Some("win.toggle-notes"));
+    applets.append(Some("Downloads"), Some("win.toggle-downloads"));
     menu.append_section(None, &applets);
 
     let zoom = gio::Menu::new();
@@ -573,26 +641,72 @@ fn setup_menu(
 
 // ── Panel & action helpers ──────────────────────────────────────────────────────
 
-fn toggle_history(tab_view: &libadwaita::TabView, hp: &HistoryPanel, bp: &BookmarksPanel) {
-    let opening = !hp.is_open();
-    bp.hide();
-    if opening {
-        hp.show();
-        tab_view.add_css_class("browse-dim");
-    } else {
-        hp.hide();
+/// Shows/hides the sidebar and switches its active page. Returns `true` if
+/// the sidebar ended up open on `name` (so callers can refresh fresh data).
+fn toggle_panel(
+    split_view: &libadwaita::OverlaySplitView,
+    sidebar_stack: &gtk4::Stack,
+    sidebar_title: &gtk4::Label,
+    tab_view: &libadwaita::TabView,
+    name: &str,
+    title: &str,
+) -> bool {
+    let already_showing = split_view.shows_sidebar()
+        && sidebar_stack.visible_child_name().as_deref() == Some(name);
+
+    if already_showing {
+        split_view.set_show_sidebar(false);
+        tab_view.remove_css_class("browse-dim");
+        return false;
+    }
+
+    sidebar_stack.set_visible_child_name(name);
+    sidebar_title.set_label(title);
+    split_view.set_show_sidebar(true);
+    tab_view.add_css_class("browse-dim");
+    true
+}
+
+fn toggle_history(
+    split_view: &libadwaita::OverlaySplitView,
+    sidebar_stack: &gtk4::Stack,
+    sidebar_title: &gtk4::Label,
+    tab_view: &libadwaita::TabView,
+    hp: &HistoryPanel,
+) {
+    if toggle_panel(split_view, sidebar_stack, sidebar_title, tab_view, "history", "HISTORY") {
+        hp.refresh();
     }
 }
 
-fn toggle_bookmarks(tab_view: &libadwaita::TabView, hp: &HistoryPanel, bp: &BookmarksPanel) {
-    let opening = !bp.is_open();
-    hp.hide();
-    if opening {
-        bp.show();
-        tab_view.add_css_class("browse-dim");
-    } else {
-        bp.hide();
+fn toggle_bookmarks(
+    split_view: &libadwaita::OverlaySplitView,
+    sidebar_stack: &gtk4::Stack,
+    sidebar_title: &gtk4::Label,
+    tab_view: &libadwaita::TabView,
+    bp: &BookmarksPanel,
+) {
+    if toggle_panel(split_view, sidebar_stack, sidebar_title, tab_view, "bookmarks", "BOOKMARKS") {
+        bp.refresh();
     }
+}
+
+fn toggle_notes(
+    split_view: &libadwaita::OverlaySplitView,
+    sidebar_stack: &gtk4::Stack,
+    sidebar_title: &gtk4::Label,
+    tab_view: &libadwaita::TabView,
+) {
+    toggle_panel(split_view, sidebar_stack, sidebar_title, tab_view, "notes", "NOTES");
+}
+
+fn toggle_downloads(
+    split_view: &libadwaita::OverlaySplitView,
+    sidebar_stack: &gtk4::Stack,
+    sidebar_title: &gtk4::Label,
+    tab_view: &libadwaita::TabView,
+) {
+    toggle_panel(split_view, sidebar_stack, sidebar_title, tab_view, "downloads", "DOWNLOADS");
 }
 
 fn bookmark_current_page(tab_view: &libadwaita::TabView, url_bar: &gtk4::Entry) {

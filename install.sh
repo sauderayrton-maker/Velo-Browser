@@ -28,7 +28,8 @@ fi
 
 install_deps_pacman() {
     local pkgs=(base-devel webkit2gtk-4.1 libadwaita
-                gst-plugins-base gst-plugins-good)
+                gst-plugins-base gst-plugins-good gst-plugins-bad
+                gst-plugins-ugly gst-libav)
     info "Installing dependencies via pacman..."
     sudo pacman -S --needed --noconfirm "${pkgs[@]}"
 }
@@ -36,7 +37,9 @@ install_deps_pacman() {
 install_deps_apt() {
     local pkgs=(build-essential pkg-config
                 libwebkit2gtk-4.1-dev libadwaita-1-dev
-                gstreamer1.0-plugins-base gstreamer1.0-plugins-good)
+                gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+                gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+                gstreamer1.0-libav)
     info "Installing dependencies via apt..."
     sudo apt-get update -q
     sudo apt-get install -y "${pkgs[@]}"
@@ -45,9 +48,20 @@ install_deps_apt() {
 install_deps_dnf() {
     local pkgs=(gcc pkg-config
                 webkit2gtk4.1-devel libadwaita-devel
-                gstreamer1-plugins-base gstreamer1-plugins-good)
+                gstreamer1-plugins-base gstreamer1-plugins-good
+                gstreamer1-plugins-bad-free)
     info "Installing dependencies via dnf..."
     sudo dnf install -y "${pkgs[@]}"
+
+    # H.264/AAC/MP3 etc. are patent-encumbered and ship from RPM Fusion, not
+    # Fedora's main repos — install them if available, but don't fail the
+    # whole script if RPM Fusion isn't enabled.
+    local nonfree=(gstreamer1-plugins-ugly gstreamer1-plugins-bad-freeworld gstreamer1-libav)
+    if ! sudo dnf install -y "${nonfree[@]}" 2>/dev/null; then
+        info "Skipped patent-encumbered codecs (H.264/AAC/MP3 playback)."
+        info "Enable RPM Fusion for full media support:"
+        info "  https://rpmfusion.org/Configuration"
+    fi
 }
 
 # ── Rust check ────────────────────────────────────────────────────────────────
@@ -73,7 +87,7 @@ elif [[ "$PM" == "dnf" ]]; then
     install_deps_dnf
 else
     info "Package manager not detected. Make sure these are installed:"
-    info "  WebKitGTK 4.1, libadwaita, GStreamer (base + good plugins)"
+    info "  WebKitGTK 4.1, libadwaita, GStreamer (base/good/bad/ugly + libav)"
     MISSING_HINT="true"
 fi
 
